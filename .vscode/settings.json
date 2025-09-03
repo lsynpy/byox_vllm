@@ -1,0 +1,32 @@
+{
+  "cSpell.words": [
+    "allclose",
+    "cudagraph",
+    "hyperparameters",
+    "infty",
+    "intdigest",
+    "itemsize",
+    "kvcache",
+    "layernorm",
+    "LSTM",
+    "mathbb",
+    "nanovllm",
+    "nccl",
+    "ncols",
+    "pbar",
+    "randint",
+    "seqlen",
+    "seqlens",
+    "setuptools",
+    "silu",
+    "Silu",
+    "tobytes",
+    "varlen",
+    "Xingkai",
+    "xxhash"
+  ],
+  "ruff.organizeImports": false,
+  "[python]": {
+    "editor.formatOnSave": false
+  }
+}
