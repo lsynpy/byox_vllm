@@ -1,7 +1,16 @@
 {
   "cSpell.words": [
+    "Ainslie",
     "allclose",
+    "BBPE",
+    "bmatrix",
+    "byox",
+    "byoxvllm",
     "cudagraph",
+    "Devlin",
+    "einops",
+    "freqs",
+    "huggingface",
     "hyperparameters",
     "infty",
     "intdigest",
@@ -14,7 +23,9 @@
     "nccl",
     "ncols",
     "pbar",
+    "pyenv",
     "randint",
+    "safetensors",
     "seqlen",
     "seqlens",
     "setuptools",
@@ -22,11 +33,8 @@
     "Silu",
     "tobytes",
     "varlen",
+    "Vaswani",
     "Xingkai",
     "xxhash"
-  ],
-  "ruff.organizeImports": false,
-  "[python]": {
-    "editor.formatOnSave": false
-  }
+  ]
 }
