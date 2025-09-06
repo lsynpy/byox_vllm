@@ -1,21 +1,5 @@
 # TODO List for byoxvllm
 
-## Inference
-
-- [ ] Validate correctness by using nanovllm as reference
-- [ ] Implement weight packing optimization for QKV and MLP projections
-- [ ] Add tensor parallelism support for distributed inference
-- [ ] Implement specialized linear layers (ColumnParallelLinear, RowParallelLinear, QKVParallelLinear)
-- [ ] Add FlashAttention for optimized attention computation
-- [ ] Implement KV cache management with PagedAttention
-- [ ] Add block manager for memory allocation
-- [ ] Implement scheduler for batch management
-- [ ] Add CUDA graph support for decode phase
-- [ ] Implement prefix caching for faster prompt processing
-- [ ] Add torch compilation for optimized sampling
-- [ ] Add residual arg to RMSNorm.forward() and Qwen3DecoderLayer.forward()
-- [ ] Pre-compute and cache cos/sin values in RotaryEmbedding
-
 ## Qwen3 model
 
 - [x] Byte-level Bye-Pair Encoding (BBPE)
@@ -26,9 +10,34 @@
 - [x] QK-Norm
 - [ ] Dense model vs MoE model
 
-## Coding plan
+## Validation and Testing
 
-### [x] part 1. Single token LLM inference engine
+- [ ] Validate correctness by using nanovllm as reference (with deterministic settings: temperature=1e-10, fixed seeds, torch.use_deterministic_algorithms)
+
+## Performance Optimizations
+
+- [ ] Implement weight packing optimization for QKV and MLP projections
+- [ ] Add residual arg to RMSNorm.forward() and Qwen3DecoderLayer.forward()
+- [ ] Pre-compute and cache cos/sin values in RotaryEmbedding
+- [ ] Add FlashAttention for optimized attention computation
+
+## Inference Engine Features
+
+- [ ] Implement KV cache management with PagedAttention
+- [ ] Add block manager for memory allocation
+- [ ] Implement scheduler for batch management
+- [ ] Add CUDA graph support for decode phase
+- [ ] Implement prefix caching for faster prompt processing
+- [ ] Add torch compilation for optimized sampling
+
+## Distributed Computing Support
+
+- [ ] Add tensor parallelism support for distributed inference
+- [ ] Implement specialized linear layers (ColumnParallelLinear, RowParallelLinear, QKVParallelLinear)
+
+# Coding plan
+
+## [x] part 1. Single token LLM inference engine
 
 - lode weight/config from pre-trained model(qwen3-0.6b)
 - use BBPE tokenizer from `transformers` pkg
@@ -57,3 +66,10 @@
       - norm: RMSNorm
     - lm_head: nn.Linear
 ```
+
+## [ ] part 2. Validation and correctness testing
+
+- create deterministic validation framework using nanovllm as reference
+- implement comparison tests for single token inference
+- add multi-token generation validation with KV cache
+- verify numerical precision and output consistency
