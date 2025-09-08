@@ -126,6 +126,7 @@ class Qwen3Model(nn.Module):
         positions: torch.Tensor,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
+        print(f"byox embedding -> {hidden_states.flatten()[:3]}")
 
         for decoder_layer in self.layers:
             hidden_states = decoder_layer(positions, hidden_states)
