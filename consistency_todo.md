@@ -7,7 +7,7 @@ This document outlines the steps to verify consistency between the ByoX and Nano
 - [x] Check token ID consistency between ByoX and Nano
 - [ ] Compare embedding layer outputs
 - [ ] Compare first decoder layer outputs
-  - [ ] Input LayerNorm output
+  - [x] Input LayerNorm output
   - [ ] Self-Attention output
   - [ ] Post-Attention LayerNorm output
   - [ ] MLP output

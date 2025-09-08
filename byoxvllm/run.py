@@ -56,6 +56,7 @@ def run_byoxvllm(prompt):
     hf_config = config.hf_config
     model = Qwen3ForCausalLM(hf_config)
     model = load_model_weights(model, model_path)
+    print(f"byox input_layernorm weights -> {model.model.layers[0].input_layernorm.weight.flatten()[:3]}")
     model = model.to(torch.bfloat16)  # Convert model to bfloat16
     model = model.to("cpu")
     model.eval()

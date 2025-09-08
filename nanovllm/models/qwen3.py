@@ -142,12 +142,17 @@ class Qwen3DecoderLayer(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
         residual: torch.Tensor | None,
+        layer_idx: int = -1,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if residual is None:
             hidden_states, residual = self.input_layernorm(hidden_states), hidden_states
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
+        if layer_idx == 0:
+            print(f"nano input_layernorm -> {hidden_states.flatten()[:3]}")
         hidden_states = self.self_attn(positions, hidden_states)
+        if layer_idx == 0:
+            print(f"nano self_attn -> {hidden_states.flatten()[:3]}")
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
         return hidden_states, residual
@@ -172,8 +177,8 @@ class Qwen3Model(nn.Module):
         hidden_states = self.embed_tokens(input_ids)
         print(f"nano embedding -> {hidden_states.flatten()[:3]}")
         residual = None
-        for layer in self.layers:
-            hidden_states, residual = layer(positions, hidden_states, residual)
+        for i, layer in enumerate(self.layers):
+            hidden_states, residual = layer(positions, hidden_states, residual, layer_idx=i)
         hidden_states, _ = self.norm(hidden_states, residual)
         return hidden_states
 

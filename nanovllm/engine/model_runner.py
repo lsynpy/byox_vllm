@@ -30,6 +30,7 @@ class ModelRunner:
         torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model)
+        print(f"nano input_layernorm weights -> {self.model.model.layers[0].input_layernorm.weight.flatten()[:3]}")
         self.sampler = Sampler()
         # self.warmup_model() # FIXME: comment out for debug
         self.allocate_kv_cache()

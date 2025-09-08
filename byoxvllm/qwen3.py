@@ -99,10 +99,15 @@ class Qwen3DecoderLayer(nn.Module):
         self,
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
+        layer_idx: int = -1,
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
+        if layer_idx == 0:
+            print(f"byox input_layernorm -> {hidden_states.flatten()[:3]}")
         hidden_states = self.self_attn(positions, hidden_states)
+        if layer_idx == 0:
+            print(f"byox self_attn -> {hidden_states.flatten()[:3]}")
         hidden_states = residual + hidden_states
 
         residual = hidden_states
@@ -128,8 +133,8 @@ class Qwen3Model(nn.Module):
         hidden_states = self.embed_tokens(input_ids)
         print(f"byox embedding -> {hidden_states.flatten()[:3]}")
 
-        for decoder_layer in self.layers:
-            hidden_states = decoder_layer(positions, hidden_states)
+        for i, decoder_layer in enumerate(self.layers):
+            hidden_states = decoder_layer(positions, hidden_states, layer_idx=i)
 
         hidden_states = self.norm(hidden_states)
         return hidden_states
