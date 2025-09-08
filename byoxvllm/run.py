@@ -41,14 +41,12 @@ def run_nanovllm(prompt):
     llm = LLM(model_path, enforce_eager=True, tensor_parallel_size=1)
     sampling_params = SamplingParams(temperature=0, max_tokens=1)
 
-    # Use the prompt directly without chat template
     prompts = [prompt]
 
     outputs = llm.generate(prompts, sampling_params, False)
 
-    for prompt, output in zip(prompts, outputs):
-        print(f"Prompt: {prompt!r}")
-        print(f"Completion: {output['text']!r}")
+    for output in outputs:
+        print(f"Generated token: {output['text']!r} <{output['token_ids'][0]}>")
 
 
 def run_byoxvllm(prompt):
@@ -63,7 +61,6 @@ def run_byoxvllm(prompt):
     model.eval()
 
     input_ids = tokenizer.encode(prompt, return_tensors="pt")
-    print(f"Input IDs - shape: {input_ids.shape}, values: {input_ids[0, :3]}")
 
     with torch.no_grad():
         position_ids = torch.arange(input_ids.shape[1]).unsqueeze(0).expand(input_ids.shape[0], -1)
@@ -72,12 +69,11 @@ def run_byoxvllm(prompt):
         next_token_id = torch.argmax(next_token_logits, dim=-1)
 
     generated_token = tokenizer.decode(next_token_id[0].item())
-    print(f"Generated token: {generated_token}")
-    print(f"Generated token ID - shape: {next_token_id.shape}, value: {next_token_id[0].item()}")
+    print(f"Generated token: {generated_token} <{next_token_id[0].item()}>")
 
 
 if __name__ == "__main__":
-    prompt = "list all prime numbers within 100"
+    prompt = "list all prime numbers within 55\n"
     print(f"Prompt: {prompt!r}")
 
     if len(sys.argv) > 1:
