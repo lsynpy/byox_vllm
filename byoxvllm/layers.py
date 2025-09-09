@@ -2,13 +2,13 @@ import torch
 from torch import nn
 
 
-@torch.compile
 class RMSNorm(nn.Module):
     def __init__(self, hidden_size: int, eps: float = 1e-6):
         super().__init__()
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
+    @torch.compile
     def forward(self, hidden_states):
         input_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)
