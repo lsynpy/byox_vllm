@@ -30,13 +30,13 @@ def byox_inputs(batch_size, seq_len, num_heads, head_dim, num_kv_heads, device, 
 
 def nano_inputs(batch_size, seq_len, num_heads, head_dim, num_kv_heads, device, dtype):
     q, k, v = _generate_random_inputs(batch_size, seq_len, num_heads, head_dim, num_kv_heads, device, dtype)
-    
+
     total_q = batch_size * seq_len
-    
+
     q = q.permute(0, 2, 1, 3).reshape(total_q, num_heads, head_dim)
     k = k.permute(0, 2, 1, 3).reshape(total_q, num_kv_heads, head_dim)
     v = v.permute(0, 2, 1, 3).reshape(total_q, num_kv_heads, head_dim)
-    
+
     return q, k, v
 
 
