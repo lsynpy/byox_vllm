@@ -1,4 +1,5 @@
 import torch
+from einops import rearrange
 from torch import nn
 from transformers import Qwen3Config
 
@@ -44,20 +45,29 @@ class Qwen3Attention(nn.Module):
         k = self.k_proj(hidden_states)
         v = self.v_proj(hidden_states)
 
-        q = q.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.view(bsz, q_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        v = v.view(bsz, q_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
-
+        v = rearrange(v, "b l (h d) -> b h l d", h=self.num_kv_heads, d=self.head_dim)
+        q = rearrange(q, "b l (h d) -> (b l) h d", h=self.num_heads, d=self.head_dim)
+        k = rearrange(k, "b l (h d) -> (b l) h d", h=self.num_kv_heads, d=self.head_dim)
         # Apply QK normalization
-        q = q.transpose(1, 2).contiguous()
-        k = k.transpose(1, 2).contiguous()
-        q = self.q_norm(q.view(-1, self.num_heads, self.head_dim))
-        k = self.k_norm(k.view(-1, self.num_kv_heads, self.head_dim))
-        q = q.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.view(bsz, q_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+        q = rearrange(q, "(b l) h d -> b h l d", b=bsz, l=q_len)
+        k = rearrange(k, "(b l) h d -> b h l d", b=bsz, l=q_len)
 
-        cos, sin = self.rotary_emb(v, positions)
+        print(f"q -> {q.flatten()[-3:]}, {q.shape}")
+        print(f"k -> {k.flatten()[-3:]}, {k.shape}")
+        print(f"v -> {v.flatten()[-3:]}, {v.shape}")
+
+        cos, sin = self.rotary_emb(q.dtype, positions)
+        old_q = q
+        old_k = k
         q, k = apply_rotary_pos_emb(q, k, cos, sin)
+        print(f"{torch.sum(old_k != k)} different values in total {k.numel()}")
+        print(f"{torch.sum(old_q != q)} different values in total {q.numel()}")
+
+        print(f"q -> {q.flatten()[-3:]}, {q.shape}")
+        print(f"k -> {k.flatten()[-3:]}, {k.shape}")
+        print(f"v -> {v.flatten()[-3:]}, {v.shape}")
 
         attn_output = self.attn(q, k, v)
 
@@ -99,15 +109,10 @@ class Qwen3DecoderLayer(nn.Module):
         self,
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
-        layer_idx: int = -1,
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        if layer_idx == 0:
-            print(f"byox input_layernorm -> {hidden_states.flatten()[:3]}")
         hidden_states = self.self_attn(positions, hidden_states)
-        if layer_idx == 0:
-            print(f"byox self_attn -> {hidden_states.flatten()[:3]}")
         hidden_states = residual + hidden_states
 
         residual = hidden_states
@@ -131,10 +136,10 @@ class Qwen3Model(nn.Module):
         positions: torch.Tensor,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
-        print(f"byox embedding -> {hidden_states.flatten()[:3]}")
 
-        for i, decoder_layer in enumerate(self.layers):
-            hidden_states = decoder_layer(positions, hidden_states, layer_idx=i)
+        for decoder_layer in self.layers:
+            hidden_states = decoder_layer(positions, hidden_states)
+            break
 
         hidden_states = self.norm(hidden_states)
         return hidden_states

@@ -30,7 +30,6 @@ class ModelRunner:
         torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model)
-        print(f"nano input_layernorm weights -> {self.model.model.layers[0].input_layernorm.weight.flatten()[:3]}")
         self.sampler = Sampler()
         # self.warmup_model() # FIXME: comment out for debug
         self.allocate_kv_cache()
@@ -189,8 +188,10 @@ class ModelRunner:
     @torch.inference_mode()
     def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool):
         if is_prefill or self.enforce_eager or input_ids.size(0) > 512:
+            print("prefill")
             return self.model.compute_logits(self.model(input_ids, positions))
         else:
+            print("decode")
             bs = input_ids.size(0)
             context = get_context()
             graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]

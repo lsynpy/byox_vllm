@@ -2,6 +2,8 @@ import os
 import sys
 from glob import glob
 
+from torch import nn
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
@@ -13,7 +15,7 @@ from byoxvllm.qwen3 import Qwen3ForCausalLM
 from nanovllm import LLM, SamplingParams
 
 
-def load_model_weights(model, model_path):
+def load_model_weights(model: nn.Module, model_path):
     weight_files = glob(os.path.join(model_path, "*.safetensors"))
     if not weight_files:
         raise FileNotFoundError(f"No safetensors files found in {model_path}")
@@ -56,7 +58,6 @@ def run_byoxvllm(prompt):
     hf_config = config.hf_config
     model = Qwen3ForCausalLM(hf_config)
     model = load_model_weights(model, model_path)
-    print(f"byox input_layernorm weights -> {model.model.layers[0].input_layernorm.weight.flatten()[:3]}")
     model = model.to(torch.bfloat16)  # Convert model to bfloat16
     model = model.to("cpu")
     model.eval()
