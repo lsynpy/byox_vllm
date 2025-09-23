@@ -1,86 +1,58 @@
 import os
 import sys
-from glob import glob
 
-from torch import nn
+import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import torch
-from safetensors import safe_open
-from transformers import AutoTokenizer
 
-from byoxvllm.config import Config
-from byoxvllm.qwen3 import Qwen3ForCausalLM
-from nanovllm import LLM, SamplingParams
+from byoxvllm.engine import LLMEngine
+from byoxvllm.sampling_params import SamplingParams
+from nanovllm import LLM
 
-
-def load_model_weights(model: nn.Module, model_path):
-    weight_files = glob(os.path.join(model_path, "*.safetensors"))
-    if not weight_files:
-        raise FileNotFoundError(f"No safetensors files found in {model_path}")
-
-    state_dict = {}
-    for weight_file in weight_files:
-        with safe_open(weight_file, framework="pt", device="cpu") as f:
-            for key in f.keys():
-                state_dict[key] = f.get_tensor(key)
-
-    model.load_state_dict(state_dict, strict=False)
-    return model
+# Set random seeds for deterministic results
+torch.manual_seed(42)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+torch.use_deterministic_algorithms(True)  # Enable deterministic operations (may impact performance)
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # Required for deterministic CUDA operations
 
 
-def run_nanovllm(prompt):
-    # Set random seeds for deterministic results
-    torch.manual_seed(42)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(42)
-        torch.cuda.manual_seed_all(42)
-    torch.use_deterministic_algorithms(True)  # Enable deterministic operations (may impact performance)
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # Required for deterministic CUDA operations
+def run_byoxvllm(prompt, t=0.6, num_tokens=1):
+    model_path = os.path.expanduser("~/huggingface/Qwen3-0.6B")
 
+    # Use the LLMEngine which handles all the complexity
+    engine = LLMEngine(model_path)
+
+    # Simple generation with default parameters
+    sampling_params = SamplingParams(temperature=t, max_tokens=num_tokens)
+    outputs = engine.generate([prompt], sampling_params)
+
+    for output in outputs:
+        print(f"Generated token: {output['text']!r} <{output['token_ids']}>")
+
+
+def run_nanovllm(prompt, t=0.6, num_tokens=1):
     model_path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
     llm = LLM(model_path, enforce_eager=True, tensor_parallel_size=1)
-    sampling_params = SamplingParams(temperature=0, max_tokens=1)
+    sampling_params = SamplingParams(temperature=t, max_tokens=num_tokens)
 
     prompts = [prompt]
 
     outputs = llm.generate(prompts, sampling_params, False)
 
     for output in outputs:
-        print(f"Generated token: {output['text']!r} <{output['token_ids'][0]}>")
-
-
-def run_byoxvllm(prompt):
-    model_path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
-    config = Config(model_path)
-    hf_config = config.hf_config
-    model = Qwen3ForCausalLM(hf_config)
-    model = load_model_weights(model, model_path)
-    model = model.to(torch.bfloat16)  # Convert model to bfloat16
-    model = model.to("cpu")
-    model.eval()
-
-    input_ids = tokenizer.encode(prompt, return_tensors="pt")
-
-    with torch.no_grad():
-        position_ids = torch.arange(input_ids.shape[1]).unsqueeze(0).expand(input_ids.shape[0], -1)
-        logits = model(input_ids, position_ids)
-        next_token_logits = logits[:, -1, :]
-        next_token_id = torch.argmax(next_token_logits, dim=-1)
-
-    generated_token = tokenizer.decode(next_token_id[0].item())
-    print(f"Generated token: {generated_token} <{next_token_id[0].item()}>")
+        print(f"Generated token: {output['text']!r} <{output['token_ids']}>")
 
 
 if __name__ == "__main__":
-    prompt = "list all prime numbers within 55\n"
+    prompt = "The capital of France is"
     print(f"Prompt: {prompt!r}")
 
     if len(sys.argv) > 1:
         print("\n=== Running nanovllm ===")
-        run_nanovllm(prompt)
+        run_nanovllm(prompt, num_tokens=10)
     else:
         print("\n=== Running byoxvllm ===")
-        run_byoxvllm(prompt)
+        run_byoxvllm(prompt, num_tokens=10)

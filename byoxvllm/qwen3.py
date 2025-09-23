@@ -1,9 +1,9 @@
 import torch
-from einops import rearrange
 from torch import nn
 from transformers import Qwen3Config
 
-from byoxvllm.layers import Attention, RMSNorm, RotaryEmbedding, apply_rotary_pos_emb
+from byoxvllm.attention import Attention
+from byoxvllm.layers import RMSNorm, RotaryEmbedding
 
 
 class Qwen3Attention(nn.Module):
@@ -26,6 +26,7 @@ class Qwen3Attention(nn.Module):
         self.attn = Attention(
             num_heads=self.num_heads,
             head_dim=self.head_dim,
+            scale=self.head_dim**-0.5,
             num_kv_heads=self.num_kv_heads,
         )
 
@@ -39,43 +40,20 @@ class Qwen3Attention(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor:
-        bsz, q_len, _ = hidden_states.size()
-
         q = self.q_proj(hidden_states)
         k = self.k_proj(hidden_states)
         v = self.v_proj(hidden_states)
 
-        v = rearrange(v, "b l (h d) -> b h l d", h=self.num_kv_heads, d=self.head_dim)
-        q = rearrange(q, "b l (h d) -> (b l) h d", h=self.num_heads, d=self.head_dim)
-        k = rearrange(k, "b l (h d) -> (b l) h d", h=self.num_kv_heads, d=self.head_dim)
-        # Apply QK normalization
-        q = self.q_norm(q)
-        k = self.k_norm(k)
-        q = rearrange(q, "(b l) h d -> b h l d", b=bsz, l=q_len)
-        k = rearrange(k, "(b l) h d -> b h l d", b=bsz, l=q_len)
+        q = q.view(-1, self.num_heads, self.head_dim)
+        k = k.view(-1, self.num_kv_heads, self.head_dim)
+        v = v.view(-1, self.num_kv_heads, self.head_dim)
 
-        print(f"q -> {q.flatten()[-3:]}, {q.shape}")
-        print(f"k -> {k.flatten()[-3:]}, {k.shape}")
-        print(f"v -> {v.flatten()[-3:]}, {v.shape}")
-
-        cos, sin = self.rotary_emb(q.dtype, positions)
-        old_q = q
-        old_k = k
-        q, k = apply_rotary_pos_emb(q, k, cos, sin)
-        print(f"{torch.sum(old_k != k)} different values in total {k.numel()}")
-        print(f"{torch.sum(old_q != q)} different values in total {q.numel()}")
-
-        print(f"q -> {q.flatten()[-3:]}, {q.shape}")
-        print(f"k -> {k.flatten()[-3:]}, {k.shape}")
-        print(f"v -> {v.flatten()[-3:]}, {v.shape}")
-
+        q, k = self.rotary_emb(positions, q, k)
         attn_output = self.attn(q, k, v)
+        attn_output = attn_output.view(-1, self.num_heads * self.head_dim)
+        output = self.o_proj(attn_output)
 
-        attn_output = attn_output.transpose(1, 2).contiguous()
-        attn_output = attn_output.reshape(bsz, q_len, self.num_heads * self.head_dim)
-        attn_output = self.o_proj(attn_output)
-
-        return attn_output
+        return output
 
 
 class Qwen3MLP(nn.Module):
@@ -136,10 +114,8 @@ class Qwen3Model(nn.Module):
         positions: torch.Tensor,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
-
         for decoder_layer in self.layers:
             hidden_states = decoder_layer(positions, hidden_states)
-            break
 
         hidden_states = self.norm(hidden_states)
         return hidden_states
@@ -159,4 +135,7 @@ class Qwen3ForCausalLM(nn.Module):
         positions: torch.Tensor,
     ) -> torch.Tensor:
         hidden_states = self.model(input_ids, positions)
+        return hidden_states
+
+    def compute_logits(self, hidden_states):
         return self.lm_head(hidden_states)
