@@ -57,8 +57,11 @@ class Attention(nn.Module):
         self.k_cache = self.v_cache = torch.tensor([])
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
+        # print(f'q: {q.shape}, k: {k.shape}, v: {v.shape}')
+        # print(f"q[2,7,65]: {q[2, 7, 65]}, {q[2, 7, 66]}, k[2,7,65]: {k[2, 7, 65]}, {k[2, 7, 66]}, {q.dtype}")
         context = get_context()
         k_cache, v_cache = self.k_cache, self.v_cache
+        # print(f'k_cache: {k_cache.numel()}, v_cache: {v_cache.numel()}')
         if k_cache.numel() and v_cache.numel():
             store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
         if context.is_prefill:
@@ -70,6 +73,6 @@ class Attention(nn.Module):
                                        softmax_scale=self.scale, causal=True, block_table=context.block_tables)
         else:    # decode
             o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,
-                                        cache_seqlens=context.context_lens, block_table=context.block_tables, 
+                                        cache_seqlens=context.context_lens, block_table=context.block_tables,
                                         softmax_scale=self.scale, causal=True)
         return o

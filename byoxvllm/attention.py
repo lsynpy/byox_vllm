@@ -44,9 +44,7 @@ def store_kvcache(
     assert key.stride(1) == head_dim and value.stride(1) == head_dim
     assert k_cache.stride(1) == D and v_cache.stride(1) == D
     assert slot_mapping.numel() == N
-    store_kvcache_kernel[(N,)](
-        key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D
-    )
+    store_kvcache_kernel[(N,)](key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D)
 
 
 class Attention(nn.Module):
@@ -65,8 +63,11 @@ class Attention(nn.Module):
         self.k_cache = self.v_cache = torch.tensor([])
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
+        # print(f"q: {q.shape}, k: {k.shape}, v: {v.shape}")
+        # print(f"q[2,7,65]: {q[2, 7, 65]}, {q[2, 7, 66]}, k[2,7,65]: {k[2, 7, 65]}, {k[2, 7, 66]}, {q.dtype}")
         context = get_context()
         k_cache, v_cache = self.k_cache, self.v_cache
+        # print(f"k_cache: {k_cache.numel()}, v_cache: {v_cache.numel()}")
         if k_cache.numel() and v_cache.numel():
             store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
         if context.is_prefill:

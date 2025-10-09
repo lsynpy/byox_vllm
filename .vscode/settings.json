@@ -37,6 +37,7 @@
     "popleft",
     "pyenv",
     "randint",
+    "rmsnorm",
     "safetensors",
     "seqlen",
     "seqlens",
@@ -51,5 +52,6 @@
     "Vaswani",
     "Xingkai",
     "xxhash"
-  ]
+  ],
+  "ruff.lineLength": 120
 }

@@ -22,18 +22,18 @@ class Qwen3Attention(nn.Module):
 
         self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
         self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
-
+        rope_theta = getattr(config, "rope_theta", 1000000)
+        self.rotary_emb = RotaryEmbedding(
+            self.head_dim,
+            max_position_embeddings=config.max_position_embeddings,
+            base=rope_theta,
+        )
         self.attn = Attention(
             num_heads=self.num_heads,
             head_dim=self.head_dim,
             scale=self.head_dim**-0.5,
             num_kv_heads=self.num_kv_heads,
         )
-
-        self._init_rope()
-
-    def _init_rope(self):
-        self.rotary_emb = RotaryEmbedding(self.head_dim)
 
     def forward(
         self,
@@ -48,10 +48,14 @@ class Qwen3Attention(nn.Module):
         k = k.view(-1, self.num_kv_heads, self.head_dim)
         v = v.view(-1, self.num_kv_heads, self.head_dim)
 
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+
         q, k = self.rotary_emb(positions, q, k)
-        attn_output = self.attn(q, k, v)
-        attn_output = attn_output.view(-1, self.num_heads * self.head_dim)
-        output = self.o_proj(attn_output)
+        # print(f"q[2,7,65:67]: {q[2, 7, 65:67]}, k[2,7,65:67]: {k[2, 7, 65:67]}, {q.dtype}")
+        o = self.attn(q, k, v)
+        o = o.view(-1, self.num_heads * self.head_dim)
+        output = self.o_proj(o)
 
         return output
 
@@ -80,7 +84,7 @@ class Qwen3DecoderLayer(nn.Module):
         super().__init__()
         self.self_attn = Qwen3Attention(config)
         self.mlp = Qwen3MLP(config)
-        self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.input_layernorm = RMSNormk(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
@@ -95,6 +99,7 @@ class Qwen3DecoderLayer(nn.Module):
 
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
+        print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
 

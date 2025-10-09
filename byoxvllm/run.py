@@ -49,10 +49,12 @@ def run_nanovllm(prompt, t=0.6, num_tokens=1):
 if __name__ == "__main__":
     prompt = "The capital of France is"
     print(f"Prompt: {prompt!r}")
+    N = 1
+    t = 0.6
 
     if len(sys.argv) > 1:
         print("\n=== Running nanovllm ===")
-        run_nanovllm(prompt, num_tokens=10)
+        run_nanovllm(prompt, t=t, num_tokens=N)
     else:
         print("\n=== Running byoxvllm ===")
-        run_byoxvllm(prompt, num_tokens=10)
+        run_byoxvllm(prompt, t=t, num_tokens=N)
