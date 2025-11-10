@@ -1,0 +1,37 @@
+[
+  {
+    "arguments": [
+      "/usr/local/cuda-12.8/bin/nvcc",
+      "--generate-dependencies-with-compile",
+      "--dependency-output",
+      "-I/home/pp/.pyenv/versions/miniconda3-latest/envs/byox_vllm/lib/python3.11/site-packages/torch/include",
+      "-I/home/pp/.pyenv/versions/miniconda3-latest/envs/byox_vllm/lib/python3.11/site-packages/torch/include/torch/csrc/api/include",
+      "-I/usr/local/cuda-12.8/include",
+      "-I/home/pp/.pyenv/versions/miniconda3-latest/envs/byox_vllm/include/python3.11",
+      "-c",
+      "-c",
+      "-D__CUDA_NO_HALF_OPERATORS__",
+      "-D__CUDA_NO_HALF_CONVERSIONS__",
+      "-D__CUDA_NO_BFLOAT16_CONVERSIONS__",
+      "-D__CUDA_NO_HALF2_OPERATORS__",
+      "--expt-relaxed-constexpr",
+      "--compiler-options",
+      "'-fPIC'",
+      "-O3",
+      "--use_fast_math",
+      "-std=c++17",
+      "-DTORCH_API_INCLUDE_EXTENSION_H",
+      "-DPYBIND11_COMPILER_TYPE=\"_gcc\"",
+      "-DPYBIND11_STDLIB=\"_libstdcpp\"",
+      "-DPYBIND11_BUILD_ABI=\"_cxxabi1018\"",
+      "-DTORCH_EXTENSION_NAME=norm_ext",
+      "-gencode=arch=compute_86,code=sm_86",
+      "-o",
+      "/home/pp/code/byox_vllm/byoxvllm/rmsnorm_kernel/build/temp.linux-x86_64-cpython-311/norm_ext.o",
+      "/home/pp/code/byox_vllm/byoxvllm/rmsnorm_kernel/norm_ext.cu"
+    ],
+    "directory": "/home/pp/code/byox_vllm/byoxvllm/rmsnorm_kernel/build/temp.linux-x86_64-cpython-311",
+    "file": "/home/pp/code/byox_vllm/byoxvllm/rmsnorm_kernel/norm_ext.cu",
+    "output": "/home/pp/code/byox_vllm/byoxvllm/rmsnorm_kernel/build/temp.linux-x86_64-cpython-311/norm_ext.o"
+  }
+]

@@ -1,52 +1,9 @@
 import torch
 from torch import nn
 
+from .rmsnorm_kernel.norm import RMSNorm
 
-class RMSNorm(nn.Module):
-    def __init__(self, hidden_size: int, eps: float = 1e-6):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.eps = eps
-
-    @torch.compile
-    def rmsnorm(self, x):
-        """
-        r = x
-        x = input_layernorm(x)
-        x = self_attn(x)
-        x = x + r
-        r = x
-        x = post_layernorm(x)
-        x = mlp(x)
-        x = x + r
-        """
-        orig_dtype = x.dtype
-        x = x.to(torch.float32)
-        var = x.pow(2).mean(-1, keepdim=True)
-        x = x * torch.rsqrt(var + self.eps)
-        return self.weight * x.to(orig_dtype)
-
-    @torch.compile
-    def fused_add_rmsnorm(self, x, residual):
-        """
-        x, r = input_layernorm(x, r)
-        x = self_attn(x)
-        x, r = post_layernorm(x, r)
-        x = mlp(x)
-        return x, r
-        """
-        orig_dtype = x.dtype
-        x = x.float().add_(residual.float())
-        residual = x.to(orig_dtype)
-        var = x.pow(2).mean(-1, keepdim=True)
-        x = x * torch.rsqrt(var + self.eps)
-        return self.weight * x.to(orig_dtype), residual
-
-    def forward(self, x: torch.Tensor, residual: torch.Tensor | None = None):
-        if residual is None:
-            return self.rmsnorm(x)
-        else:
-            return self.fused_add_rmsnorm(x, residual)
+RMSNorm = RMSNorm
 
 
 class RotaryEmbedding(nn.Module):
