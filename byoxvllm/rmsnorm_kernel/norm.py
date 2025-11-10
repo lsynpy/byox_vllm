@@ -50,6 +50,7 @@ class RMSNorm(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         if ENABLE_RMSNORM_KERNEL:
+            print("using rmsnorm cuda")
             out = torch.empty_like(hidden_states)
             rmsnorm(out, hidden_states, self.weight, self.variance_epsilon)
             return out
