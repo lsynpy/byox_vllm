@@ -3,7 +3,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from .norm_ext import rmsnorm
+from .norm_ext import fused_add_rmsnorm, rmsnorm
 
 ENABLE_RMSNORM_KERNEL = True
 
@@ -70,7 +70,8 @@ class FusedAddRMSNorm(nn.Module):
 
         if ENABLE_RMSNORM_KERNEL:
             # For fused operation, both tensors are modified in-place
-            # hidden_states = fused_add_rms_norm(hidden_states, residual, self.weight, self.variance_epsilon)
+            print("using fused rmsnorm cuda")
+            hidden_states = fused_add_rmsnorm(hidden_states, residual, self.weight, self.variance_epsilon)
             # Return the modified hidden_states and residual
             return hidden_states, hidden_states  # Return same tensor since it's modified in-place
         else:
