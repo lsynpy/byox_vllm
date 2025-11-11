@@ -182,9 +182,7 @@ class Scheduler:
         num_batched_tokens = 0
         while self.waiting and num_seqs < self.max_num_seqs:
             seq = self.waiting[0]
-            if num_batched_tokens + len(
-                seq
-            ) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
+            if num_batched_tokens + len(seq) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
                 break
             num_seqs += 1
             self.block_manager.allocate(seq)
@@ -249,6 +247,7 @@ class ModelRunner:
         self.block_size = config.kvcache_block_size
 
         torch.set_default_dtype(hf_config.dtype)
+        print(f"Debug: setting dtype: {hf_config.dtype}")
         torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model)
@@ -272,9 +271,7 @@ class ModelRunner:
             * hf_config.head_dim
             * hf_config.dtype.itemsize
         )
-        config.num_kvcache_blocks = (
-            int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes
-        )
+        config.num_kvcache_blocks = int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes
         self.kv_cache = torch.empty(
             2,
             hf_config.num_hidden_layers,
@@ -331,9 +328,7 @@ class ModelRunner:
         cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32).cuda()
         cu_seqlens_k = torch.tensor(cu_seqlens_k, dtype=torch.int32).cuda()
         slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32).cuda()
-        set_context(
-            True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables
-        )
+        set_context(True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables)
         return input_ids, positions
 
     def prepare_decode(self, seqs: list[Sequence]):
@@ -413,7 +408,5 @@ class LLMEngine:
             for seq_id, token_ids in output:
                 outputs[seq_id] = token_ids
         outputs = [outputs[seq_id] for seq_id in sorted(outputs.keys())]
-        outputs = [
-            {"text": self.tokenizer.decode(token_ids), "token_ids": token_ids} for token_ids in outputs
-        ]
+        outputs = [{"text": self.tokenizer.decode(token_ids), "token_ids": token_ids} for token_ids in outputs]
         return outputs

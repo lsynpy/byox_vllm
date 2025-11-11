@@ -1,3 +1,4 @@
+#include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <torch/extension.h>
 
@@ -7,28 +8,30 @@ template <typename T, size_t vec_size>
 struct vec_t;
 
 template <size_t vec_size>
-struct vec_t<half, vec_size> {
+struct vec_t<nv_bfloat16, vec_size> {
   static_assert(vec_size % 8 == 0, "Invalid vector size");
   int4 data[vec_size / 8];
-  FLASHINFER_INLINE half& operator[](size_t i) { return ((half*)data)[i]; }
-  FLASHINFER_INLINE const half& operator[](size_t i) const { return ((const half*)data)[i]; }
-  FLASHINFER_INLINE half* ptr() { return reinterpret_cast<half*>(&data); }
-  FLASHINFER_INLINE void fill(half val) {
+  FLASHINFER_INLINE nv_bfloat16& operator[](size_t i) { return ((nv_bfloat16*)data)[i]; }
+  FLASHINFER_INLINE const nv_bfloat16& operator[](size_t i) const {
+    return ((const nv_bfloat16*)data)[i];
+  }
+  FLASHINFER_INLINE nv_bfloat16* ptr() { return reinterpret_cast<nv_bfloat16*>(&data); }
+  FLASHINFER_INLINE void fill(nv_bfloat16 val) {
 #pragma unroll
     for (size_t i = 0; i < vec_size / 8; ++i) {
-      *(half2*)(&(data[i].x)) = make_half2(val, val);
-      *(half2*)(&(data[i].y)) = make_half2(val, val);
-      *(half2*)(&(data[i].z)) = make_half2(val, val);
-      *(half2*)(&(data[i].w)) = make_half2(val, val);
+      *(nv_bfloat162*)(&(data[i].x)) = make_bfloat162(val, val);
+      *(nv_bfloat162*)(&(data[i].y)) = make_bfloat162(val, val);
+      *(nv_bfloat162*)(&(data[i].z)) = make_bfloat162(val, val);
+      *(nv_bfloat162*)(&(data[i].w)) = make_bfloat162(val, val);
     }
   }
-  FLASHINFER_INLINE void load(const half* ptr) {
+  FLASHINFER_INLINE void load(const nv_bfloat16* ptr) {
 #pragma unroll
     for (size_t i = 0; i < vec_size / 8; ++i) {
       data[i] = ((int4*)ptr)[i];
     }
   }
-  FLASHINFER_INLINE void store(half* ptr) const {
+  FLASHINFER_INLINE void store(nv_bfloat16* ptr) const {
 #pragma unroll
     for (size_t i = 0; i < vec_size / 8; ++i) {
       ((int4*)ptr)[i] = data[i];
@@ -39,7 +42,7 @@ struct vec_t<half, vec_size> {
 #pragma unroll
     for (size_t i = 0; i < vec_size; ++i) {
       if (i > 0) printf(", ");
-      printf("%f", __half2float((*this)[i]));
+      printf("%f", __bfloat162float((*this)[i]));
     }
     printf("]\n");
   }
@@ -86,9 +89,10 @@ __forceinline__ __device__ float shfl_xor_sync(float x, int lane_mask) {
 }
 
 template <uint32_t VEC_SIZE>
-__global__ void RMSNormKernelHalf(const half* __restrict__ input, const half* __restrict__ weight,
-                                  half* __restrict__ output, uint32_t d, uint32_t stride_input,
-                                  uint32_t stride_output, float eps) {
+__global__ void RMSNormKernelBf16(const nv_bfloat16* __restrict__ input,
+                                  const nv_bfloat16* __restrict__ weight,
+                                  nv_bfloat16* __restrict__ output, uint32_t d,
+                                  uint32_t stride_input, uint32_t stride_output, float eps) {
   const uint32_t bx = blockIdx.x;
   const uint32_t tx = threadIdx.x;
   const uint32_t ty = threadIdx.y;
@@ -105,8 +109,8 @@ __global__ void RMSNormKernelHalf(const half* __restrict__ input, const half* __
 
   // start get element-wise square
   for (uint32_t i = 0; i < rounds; i++) {
-    vec_t<half, VEC_SIZE> input_vec;
-    input_vec.fill(__float2half(0.f));
+    vec_t<nv_bfloat16, VEC_SIZE> input_vec;
+    input_vec.fill(__float2bfloat16(0.f));
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       input_vec.load(input + bx * stride_input + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
     }
@@ -115,7 +119,7 @@ __global__ void RMSNormKernelHalf(const half* __restrict__ input, const half* __
     // }
 #pragma unroll
     for (uint32_t j = 0; j < VEC_SIZE; j++) {
-      sum_sq += __half2float(input_vec[j]) * __half2float(input_vec[j]);
+      sum_sq += __bfloat162float(input_vec[j]) * __bfloat162float(input_vec[j]);
     }
   }
   // printf("sum_sq: %f\n", sum_sq);
@@ -144,19 +148,19 @@ __global__ void RMSNormKernelHalf(const half* __restrict__ input, const half* __
   float rms_rcp = rsqrtf(smem[0] / float(d) + eps);
 
   for (uint32_t i = 0; i < rounds; i++) {
-    vec_t<half, VEC_SIZE> input_vec;
-    vec_t<half, VEC_SIZE> weight_vec;
-    vec_t<half, VEC_SIZE> output_vec;
-    input_vec.fill(__float2half(0.f));
-    weight_vec.fill(__float2half(0.f));
+    vec_t<nv_bfloat16, VEC_SIZE> input_vec;
+    vec_t<nv_bfloat16, VEC_SIZE> weight_vec;
+    vec_t<nv_bfloat16, VEC_SIZE> output_vec;
+    input_vec.fill(__float2bfloat16(0.f));
+    weight_vec.fill(__float2bfloat16(0.f));
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       input_vec.load(input + bx * stride_input + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
       weight_vec.load(weight + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
     }
 #pragma unroll
     for (uint32_t j = 0; j < VEC_SIZE; j++) {
-      output_vec[j] =
-          __float2half(__half2float(input_vec[j]) * rms_rcp * __half2float(weight_vec[j]));
+      output_vec[j] = __float2bfloat16(__bfloat162float(input_vec[j]) * rms_rcp *
+                                       __bfloat162float(weight_vec[j]));
     }
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       output_vec.store(output + bx * stride_output + i * num_threads * VEC_SIZE +
@@ -165,25 +169,26 @@ __global__ void RMSNormKernelHalf(const half* __restrict__ input, const half* __
   }
 }
 
-void rmsnorm_fp16(torch::Tensor output, torch::Tensor input, torch::Tensor weight, float eps) {
+void rmsnorm_bf16(torch::Tensor output, torch::Tensor input, torch::Tensor weight, float eps) {
   unsigned int batch_size = input.size(0);
   unsigned int hidden_size = input.size(1);
 
   cudaSetDevice(input.get_device());
 
-  constexpr uint32_t vec_size = 128 / sizeof(half) / 8;  // 8 = LDG.E.128 / 2 / 8
+  constexpr uint32_t vec_size = 128 / sizeof(nv_bfloat16) / 8;  // 8 = LDG.E.128 / 2 / 8
   const uint32_t block_size = std::min<uint32_t>(1024, hidden_size / vec_size);
   const uint32_t num_warps = ceil_div(block_size, 32);
   const uint32_t smem_size = num_warps * sizeof(float);
   // printf("vec_size: %d, block_size: %d, num_warps %d, smem_size: %d\n", vec_size, block_size,
   //  num_warps, smem_size);
 
-  cudaFuncSetAttribute(RMSNormKernelHalf<vec_size>, cudaFuncAttributeMaxDynamicSharedMemorySize,
+  cudaFuncSetAttribute(RMSNormKernelBf16<vec_size>, cudaFuncAttributeMaxDynamicSharedMemorySize,
                        smem_size);
-  RMSNormKernelHalf<vec_size><<<batch_size, dim3(32, num_warps), smem_size>>>(
-      reinterpret_cast<const half*>(input.data_ptr()),
-      reinterpret_cast<const half*>(weight.data_ptr()), reinterpret_cast<half*>(output.data_ptr()),
-      hidden_size, input.stride(0), output.stride(0), static_cast<float>(eps));
+  RMSNormKernelBf16<vec_size><<<batch_size, dim3(32, num_warps), smem_size>>>(
+      reinterpret_cast<const nv_bfloat16*>(input.data_ptr()),
+      reinterpret_cast<const nv_bfloat16*>(weight.data_ptr()),
+      reinterpret_cast<nv_bfloat16*>(output.data_ptr()), hidden_size, input.stride(0),
+      output.stride(0), static_cast<float>(eps));
 
   auto err = cudaGetLastError();
   if (err != cudaSuccess) {
@@ -192,8 +197,9 @@ void rmsnorm_fp16(torch::Tensor output, torch::Tensor input, torch::Tensor weigh
 }
 
 template <uint32_t VEC_SIZE>
-__global__ void FusedAddRMSNormKernelHalf(half* __restrict__ input, half* __restrict__ residual,
-                                          const half* __restrict__ weight, const uint32_t d,
+__global__ void FusedAddRMSNormKernelBf16(nv_bfloat16* __restrict__ input,
+                                          nv_bfloat16* __restrict__ residual,
+                                          const nv_bfloat16* __restrict__ weight, const uint32_t d,
                                           const uint32_t stride_input,
                                           const uint32_t stride_residual, float eps) {
   const uint32_t bx = blockIdx.x;
@@ -210,10 +216,10 @@ __global__ void FusedAddRMSNormKernelHalf(half* __restrict__ input, half* __rest
   float sum_sq = 0.f;
 
   for (uint32_t i = 0; i < rounds; i++) {
-    vec_t<half, VEC_SIZE> input_vec;
-    input_vec.fill(__float2half(0.f));
-    vec_t<half, VEC_SIZE> residual_vec;
-    residual_vec.fill(__float2half(0.f));
+    vec_t<nv_bfloat16, VEC_SIZE> input_vec;
+    input_vec.fill(__float2bfloat16(0.f));
+    vec_t<nv_bfloat16, VEC_SIZE> residual_vec;
+    residual_vec.fill(__float2bfloat16(0.f));
     vec_t<float, VEC_SIZE> x_vec;
     x_vec.fill(0.f);
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
@@ -223,10 +229,10 @@ __global__ void FusedAddRMSNormKernelHalf(half* __restrict__ input, half* __rest
     }
 #pragma unroll
     for (uint32_t j = 0; j < VEC_SIZE; j++) {
-      float x = __half2float(input_vec[j]);
-      x += __half2float(residual_vec[j]);
+      float x = __bfloat162float(input_vec[j]);
+      x += __bfloat162float(residual_vec[j]);
       sum_sq += x * x;
-      residual_vec[j] = __float2half(x);
+      residual_vec[j] = __float2bfloat16(x);
       x_vec[j] = x;
     }
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
@@ -261,11 +267,11 @@ __global__ void FusedAddRMSNormKernelHalf(half* __restrict__ input, half* __rest
   float rms_rcp = rsqrtf(smem[0] / float(d) + eps);
 
   for (uint32_t i = 0; i < rounds; i++) {
-    vec_t<half, VEC_SIZE> input_vec;
-    vec_t<half, VEC_SIZE> weight_vec;
+    vec_t<nv_bfloat16, VEC_SIZE> input_vec;
+    vec_t<nv_bfloat16, VEC_SIZE> weight_vec;
     vec_t<float, VEC_SIZE> x_vec;
-    input_vec.fill(__float2half(0.f));
-    weight_vec.fill(__float2half(0.f));
+    input_vec.fill(__float2bfloat16(0.f));
+    weight_vec.fill(__float2bfloat16(0.f));
     x_vec.fill(0.f);
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       weight_vec.load(weight + i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
@@ -273,7 +279,7 @@ __global__ void FusedAddRMSNormKernelHalf(half* __restrict__ input, half* __rest
     }
 #pragma unroll
     for (uint32_t j = 0; j < VEC_SIZE; j++) {
-      input_vec[j] = __float2half(x_vec[j] * rms_rcp * __half2float(weight_vec[j]));
+      input_vec[j] = __float2bfloat16(x_vec[j] * rms_rcp * __bfloat162float(weight_vec[j]));
     }
     if ((i * num_threads + thread_id) * VEC_SIZE < d) {
       input_vec.store(input + bx * stride_input + i * num_threads * VEC_SIZE +
@@ -282,25 +288,26 @@ __global__ void FusedAddRMSNormKernelHalf(half* __restrict__ input, half* __rest
   }
 }
 
-void fused_add_rmsnorm_fp16(torch::Tensor input, torch::Tensor residual, torch::Tensor weight,
+void fused_add_rmsnorm_bf16(torch::Tensor input, torch::Tensor residual, torch::Tensor weight,
                             float eps = 1e-5) {
   unsigned int batch_size = input.size(0);
   unsigned int hidden_size = input.size(1);
 
   cudaSetDevice(input.get_device());
 
-  constexpr uint32_t vec_size = 128 / sizeof(half) / 8;  // 8 = LDG.E.128 / 2 / 8
+  constexpr uint32_t vec_size = 128 / sizeof(nv_bfloat16) / 8;  // 8 = LDG.E.128 / 2 / 8
   const uint32_t block_size = std::min<uint32_t>(1024, hidden_size / vec_size);
   const uint32_t num_warps = ceil_div(block_size, 32);
   const uint32_t smem_size = (ceil_div(num_warps, 4) * 4 + hidden_size) * sizeof(float);
-  printf("vec_size: %d, block_size: %d, num_warps: %d, smem_size: %d floats + %d floats\n",
-         vec_size, block_size, num_warps, ceil_div(num_warps, 4) * 4, hidden_size);
+  // printf("vec_size: %d, block_size: %d, num_warps: %d, smem_size: %d floats + %d floats\n",
+  //        vec_size, block_size, num_warps, ceil_div(num_warps, 4) * 4, hidden_size);
 
-  cudaFuncSetAttribute(FusedAddRMSNormKernelHalf<vec_size>,
+  cudaFuncSetAttribute(FusedAddRMSNormKernelBf16<vec_size>,
                        cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size);
-  FusedAddRMSNormKernelHalf<vec_size><<<batch_size, dim3(32, num_warps), smem_size>>>(
-      reinterpret_cast<half*>(input.data_ptr()), reinterpret_cast<half*>(residual.data_ptr()),
-      reinterpret_cast<const half*>(weight.data_ptr()), hidden_size, input.stride(0),
+  FusedAddRMSNormKernelBf16<vec_size><<<batch_size, dim3(32, num_warps), smem_size>>>(
+      reinterpret_cast<nv_bfloat16*>(input.data_ptr()),
+      reinterpret_cast<nv_bfloat16*>(residual.data_ptr()),
+      reinterpret_cast<const nv_bfloat16*>(weight.data_ptr()), hidden_size, input.stride(0),
       residual.stride(0), static_cast<float>(eps));
 
   auto err = cudaGetLastError();
@@ -310,6 +317,6 @@ void fused_add_rmsnorm_fp16(torch::Tensor input, torch::Tensor residual, torch::
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("rmsnorm", &rmsnorm_fp16, "RMSNorm FP16");
-  m.def("fused_add_rmsnorm", &fused_add_rmsnorm_fp16, "Fused Add RMSNorm FP16");
+  m.def("rmsnorm", &rmsnorm_bf16, "RMSNorm BF16");
+  m.def("fused_add_rmsnorm", &fused_add_rmsnorm_bf16, "Fused Add RMSNorm BF16");
 }

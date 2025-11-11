@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from .norm_ext import fused_add_rmsnorm, rmsnorm
 
-ENABLE_RMSNORM_KERNEL = False
+ENABLE_RMSNORM_KERNEL = True
 
 
 @torch.compile
@@ -44,7 +44,6 @@ def rmsnorm_impl(
     eps: float = 1e-6,
 ):
     if ENABLE_RMSNORM_KERNEL:
-        print("using rmsnorm cuda")
         out = torch.empty_like(hidden_states)
         rmsnorm(out, hidden_states, weight, eps)
         return out

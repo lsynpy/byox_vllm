@@ -34,8 +34,8 @@ def fused_add_rmsnorm_torch(x, residual, weight, eps):
 def test_rmsnorm():
     batch_size = 100
     hidden_size = 768
-    x = torch.randn(batch_size, hidden_size).to(0).to(torch.float16)
-    w = torch.randn(hidden_size).to(0).to(torch.float16)
+    x = torch.randn(batch_size, hidden_size).to(0).to(torch.bfloat16)
+    w = torch.randn(hidden_size).to(0).to(torch.bfloat16)
     eps = 1e-6
     y = torch.empty_like(x)
     rmsnorm(y, x, w, eps)
@@ -49,8 +49,8 @@ def test_fused_rmsnorm():
     batch_size = 100
     hidden_size = 768
     eps = 1e-6
-    x = torch.randn(batch_size, hidden_size).to(0).to(torch.float16)
-    w = torch.randn(hidden_size).to(0).to(torch.float16)
+    x = torch.randn(batch_size, hidden_size).to(0).to(torch.bfloat16)
+    w = torch.randn(hidden_size).to(0).to(torch.bfloat16)
     residual = torch.randn_like(x)
     x_torch, residual_torch = fused_add_rmsnorm_torch(x.clone(), residual.clone(), w, eps)
     x_fused = x.clone()
