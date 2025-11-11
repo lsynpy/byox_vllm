@@ -1,10 +1,6 @@
 import torch
 from torch import nn
 
-from .rmsnorm_kernel.norm import RMSNorm
-
-RMSNorm = RMSNorm
-
 
 class RotaryEmbedding(nn.Module):
     def __init__(self, rotary_dim, max_position_embeddings=2048, base=10000):

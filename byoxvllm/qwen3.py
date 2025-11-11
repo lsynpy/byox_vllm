@@ -1,9 +1,10 @@
 import torch
+from rmsnorm_kernel.norm import RMSNorm
 from torch import nn
 from transformers import Qwen3Config
 
 from byoxvllm.attention import Attention
-from byoxvllm.layers import RMSNorm, RotaryEmbedding
+from byoxvllm.layers import RotaryEmbedding
 
 
 class Qwen3Attention(nn.Module):
@@ -91,19 +92,16 @@ class Qwen3DecoderLayer(nn.Module):
         self,
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
+        residual: torch.Tensor | None,
     ) -> torch.Tensor:
-        residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states)
+        if residual is None:
+            hidden_states, residual = self.input_layernorm(hidden_states), hidden_states
+        else:
+            hidden_states, residual = self.input_layernorm(hidden_states, residual)
         hidden_states = self.self_attn(positions, hidden_states)
-        hidden_states = residual + hidden_states
-
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
+        hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
-        hidden_states = residual + hidden_states
-
-        return hidden_states
+        return hidden_states, residual
 
 
 class Qwen3Model(nn.Module):
@@ -119,10 +117,11 @@ class Qwen3Model(nn.Module):
         positions: torch.Tensor,
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
+        residual = None
         for decoder_layer in self.layers:
-            hidden_states = decoder_layer(positions, hidden_states)
+            hidden_states, residual = decoder_layer(positions, hidden_states, residual)
 
-        hidden_states = self.norm(hidden_states)
+        hidden_states, _ = self.norm(hidden_states, residual)
         return hidden_states
 
 
