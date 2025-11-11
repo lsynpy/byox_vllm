@@ -1,10 +1,10 @@
 import torch
-from rmsnorm_kernel.norm import RMSNorm
 from torch import nn
 from transformers import Qwen3Config
 
 from byoxvllm.attention import Attention
 from byoxvllm.layers import RotaryEmbedding
+from byoxvllm.rmsnorm_kernel.norm import RMSNorm
 
 
 class Qwen3Attention(nn.Module):
@@ -57,15 +57,16 @@ class Qwen3Attention(nn.Module):
         o = self.attn(q, k, v)
         o = o.view(-1, self.num_heads * self.head_dim)
         output = self.o_proj(o)
+        # print(f"output: {output[:, 132]}")
 
         return output
 
 
 class Qwen3MLP(nn.Module):
-    def __init__(self, config: Qwen3Config):
+    def __init__(self, hidden_size: int, intermediate_size: int):
         super().__init__()
-        self.hidden_size = config.hidden_size
-        self.intermediate_size = config.intermediate_size
+        self.hidden_size = hidden_size
+        self.intermediate_size = intermediate_size
         self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
@@ -94,16 +95,17 @@ class Qwen3DecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         residual: torch.Tensor | None,
     ) -> torch.Tensor:
-        print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
+        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         if residual is None:
             hidden_states, residual = self.input_layernorm(hidden_states), hidden_states
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
-        print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
+        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         hidden_states = self.self_attn(positions, hidden_states)
-        print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
+        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
+        # print(f"x: {hidden_states[:, 132]}")
         return hidden_states, residual
 
 

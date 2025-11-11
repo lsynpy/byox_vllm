@@ -5,7 +5,7 @@ from einops import rearrange
 from .norm_ext import fused_add_rmsnorm as fused_add_rmsnorm_cuda
 from .norm_ext import rmsnorm as rmsnorm_cuda
 
-ENABLE_RMSNORM_KERNEL = True
+ENABLE_RMSNORM_KERNEL = False
 
 
 @torch.compile
@@ -14,12 +14,12 @@ def rms_norm_torch(
     weight: torch.Tensor,
     eps: float = 1e-6,
 ) -> torch.Tensor:
-    input_dtype = x.dtype
-    x = x.to(torch.float32)
-    variance = x.pow(2).mean(dim=-1, keepdim=True)
-    x = x * torch.rsqrt(variance + eps)
-    x = weight.to(torch.float32) * x
-    return x.to(input_dtype)
+    orig_dtype = x.dtype
+    x = x.float()
+    var = x.pow(2).mean(dim=-1, keepdim=True)
+    x.mul_(torch.rsqrt(var + eps))
+    x = x.to(orig_dtype).mul_(weight)
+    return x
 
 
 @torch.compile
@@ -29,15 +29,13 @@ def fused_add_rms_norm_torch(
     weight: torch.Tensor,
     eps: float = 1e-6,
 ) -> torch.Tensor:
-    x += residual
-    residual = x
-
-    input_dtype = x.dtype
-    x = x.to(torch.float32)
-    variance = x.pow(2).mean(dim=-1, keepdim=True)
-    x = x * torch.rsqrt(variance + eps)
-    x = weight.to(torch.float32) * x
-    return x.to(input_dtype), residual.to(input_dtype)
+    orig_dtype = x.dtype
+    x = x.float().add_(residual.float())
+    residual = x.to(orig_dtype)
+    var = x.pow(2).mean(dim=-1, keepdim=True)
+    x.mul_(torch.rsqrt(var + eps))
+    x = x.to(orig_dtype).mul_(weight)
+    return x, residual
 
 
 def rmsnorm_impl(x, weight, eps=1e-6):
