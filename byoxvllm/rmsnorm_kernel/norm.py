@@ -1,67 +1,63 @@
 import torch
 import torch.nn as nn
+from einops import rearrange
 
-from .norm_ext import fused_add_rmsnorm, rmsnorm
+from .norm_ext import fused_add_rmsnorm as fused_add_rmsnorm_cuda
+from .norm_ext import rmsnorm as rmsnorm_cuda
 
 ENABLE_RMSNORM_KERNEL = True
 
 
 @torch.compile
 def rms_norm_torch(
-    hidden_states: torch.Tensor,
+    x: torch.Tensor,
     weight: torch.Tensor,
     eps: float = 1e-6,
 ) -> torch.Tensor:
-    input_dtype = hidden_states.dtype
-    hidden_states = hidden_states.to(torch.float32)
-    variance = hidden_states.pow(2).mean(dim=-1, keepdim=True)
-    hidden_states = hidden_states * torch.rsqrt(variance + eps)
-    hidden_states = weight.to(torch.float32) * hidden_states
-    return hidden_states.to(input_dtype)
+    input_dtype = x.dtype
+    x = x.to(torch.float32)
+    variance = x.pow(2).mean(dim=-1, keepdim=True)
+    x = x * torch.rsqrt(variance + eps)
+    x = weight.to(torch.float32) * x
+    return x.to(input_dtype)
 
 
 @torch.compile
 def fused_add_rms_norm_torch(
-    hidden_states: torch.Tensor,
+    x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
     eps: float = 1e-6,
 ) -> torch.Tensor:
-    hidden_states += residual
-    residual = hidden_states
+    x += residual
+    residual = x
 
-    input_dtype = hidden_states.dtype
-    hidden_states = hidden_states.to(torch.float32)
-    variance = hidden_states.pow(2).mean(dim=-1, keepdim=True)
-    hidden_states = hidden_states * torch.rsqrt(variance + eps)
-    hidden_states = weight.to(torch.float32) * hidden_states
-    return hidden_states.to(input_dtype), residual.to(input_dtype)
+    input_dtype = x.dtype
+    x = x.to(torch.float32)
+    variance = x.pow(2).mean(dim=-1, keepdim=True)
+    x = x * torch.rsqrt(variance + eps)
+    x = weight.to(torch.float32) * x
+    return x.to(input_dtype), residual.to(input_dtype)
 
 
-def rmsnorm_impl(
-    hidden_states: torch.Tensor,
-    weight: torch.Tensor,
-    eps: float = 1e-6,
-):
+def rmsnorm_impl(x, weight, eps=1e-6):
     if ENABLE_RMSNORM_KERNEL:
-        out = torch.empty_like(hidden_states)
-        rmsnorm(out, hidden_states, weight, eps)
-        return out
-    else:
-        return rms_norm_torch(hidden_states, weight, eps)
+        x_flat = rearrange(x, "... d -> (...) d")  # kernel only support (b, d) input
+        out_flat = torch.empty_like(x_flat)
+        rmsnorm_cuda(out_flat, x_flat, weight, eps)
+        return out_flat.view_as(x)
+    return rms_norm_torch(x, weight, eps)
 
 
-def fused_add_rmsnorm_impl(
-    hidden_states: torch.Tensor,
-    residual: torch.Tensor,
-    weight: torch.Tensor,
-    eps: float = 1e-6,
-):
+def fused_add_rmsnorm_impl(x, residual, weight, eps=1e-6):
     if ENABLE_RMSNORM_KERNEL:
-        fused_add_rmsnorm(hidden_states, residual, weight, eps)
-        return hidden_states, hidden_states
-    else:
-        return fused_add_rms_norm_torch(hidden_states, residual, weight, eps)
+        x_flat = rearrange(x, "... d -> (...) d").contiguous()  # x is modified in-place in kernel
+        r_flat = rearrange(residual, "... d -> (...) d").contiguous()
+        fused_add_rmsnorm_cuda(x_flat, r_flat, weight, eps)
+        x.copy_(x_flat.view_as(x))
+        residual.copy_(r_flat.view_as(residual))
+        return x, residual
+    return fused_add_rms_norm_torch(x, residual, weight, eps)
 
 
 class RMSNorm(nn.Module):
@@ -70,8 +66,8 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.eps = eps
 
-    def forward(self, hidden_states: torch.Tensor, residual: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, residual: torch.Tensor | None = None) -> torch.Tensor:
         if residual is None:
-            return rmsnorm_impl(hidden_states, self.weight, self.eps)
+            return rmsnorm_impl(x, self.weight, self.eps)
         else:
-            return fused_add_rmsnorm_impl(hidden_states, residual, self.weight, self.eps)
+            return fused_add_rmsnorm_impl(x, residual, self.weight, self.eps)
