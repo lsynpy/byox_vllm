@@ -225,7 +225,7 @@ class Scheduler:
                 self.running.remove(seq)
 
 
-def load_model(model, model_path):
+def load_model(model: torch.nn.Module, model_path):
     weight_files = glob(os.path.join(model_path, "*.safetensors"))
     if not weight_files:
         raise FileNotFoundError(f"No safetensors files found in {model_path}")
@@ -247,7 +247,6 @@ class ModelRunner:
         self.block_size = config.kvcache_block_size
 
         torch.set_default_dtype(hf_config.dtype)
-        print(f"Debug: setting dtype: {hf_config.dtype}")
         torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model)

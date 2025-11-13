@@ -79,10 +79,8 @@ class Qwen3Attention(nn.Module):
         q = self.q_norm(q)
         k = self.k_norm(k)
         q, k = self.rotary_emb(positions, q, k)
-        # print(f"q[2,7,65:67]: {q[2, 7, 65:67]}, k[2,7,65:67]: {k[2, 7, 65:67]}, {q.dtype}")
         o = self.attn(q, k, v)
         output = self.o_proj(o.flatten(1, -1))
-        # print(f'output: {output[:,132]}')
         return output
 
 
@@ -147,17 +145,13 @@ class Qwen3DecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         residual: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         if residual is None:
             hidden_states, residual = self.input_layernorm(hidden_states), hidden_states
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
-        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         hidden_states = self.self_attn(positions, hidden_states)
-        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
-        # print(f'x: {hidden_states[:,132]}')
         return hidden_states, residual
 
 
@@ -179,7 +173,7 @@ class Qwen3Model(nn.Module):
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
         residual = None
-        for layer in self.layers:
+        for layer in self.layers[:1]:
             hidden_states, residual = layer(positions, hidden_states, residual)
         hidden_states, _ = self.norm(hidden_states, residual)
         return hidden_states

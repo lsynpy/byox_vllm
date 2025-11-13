@@ -53,11 +53,9 @@ class Qwen3Attention(nn.Module):
         k = self.k_norm(k)
 
         q, k = self.rotary_emb(positions, q, k)
-        # print(f"q[2,7,65:67]: {q[2, 7, 65:67]}, k[2,7,65:67]: {k[2, 7, 65:67]}, {q.dtype}")
         o = self.attn(q, k, v)
         o = o.view(-1, self.num_heads * self.head_dim)
         output = self.o_proj(o)
-        # print(f"output: {output[:, 132]}")
 
         return output
 
@@ -85,7 +83,7 @@ class Qwen3DecoderLayer(nn.Module):
     def __init__(self, config: Qwen3Config):
         super().__init__()
         self.self_attn = Qwen3Attention(config)
-        self.mlp = Qwen3MLP(config)
+        self.mlp = Qwen3MLP(config.hidden_size, config.intermediate_size)
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
@@ -95,17 +93,13 @@ class Qwen3DecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         residual: torch.Tensor | None,
     ) -> torch.Tensor:
-        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         if residual is None:
             hidden_states, residual = self.input_layernorm(hidden_states), hidden_states
         else:
             hidden_states, residual = self.input_layernorm(hidden_states, residual)
-        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         hidden_states = self.self_attn(positions, hidden_states)
-        # print(f"output: {hidden_states[2, 769]}, {hidden_states[1, 329]}, {hidden_states.dtype}, {hidden_states.shape}")
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
-        # print(f"x: {hidden_states[:, 132]}")
         return hidden_states, residual
 
 
@@ -123,7 +117,7 @@ class Qwen3Model(nn.Module):
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
         residual = None
-        for decoder_layer in self.layers:
+        for decoder_layer in self.layers[:1]:
             hidden_states, residual = decoder_layer(positions, hidden_states, residual)
 
         hidden_states, _ = self.norm(hidden_states, residual)
