@@ -1,10 +1,10 @@
-# Tensor Parallelism (TP)
+# 1. Tensor Parallelism (TP)
 
-## Refer
+## 1.1. Refer
 
 [Megatron-LM paper](https://arxiv.org/abs/1909.08053)
 
-## Demonstration
+## 1.2. Demonstration
 
 `tp_demo.py`
 
@@ -49,35 +49,37 @@ Step 2 split K on third matrix
 
 - TP save one concatenate(gather) compare to the normal split way
 
-## 2M,2K,2N Split cases
+## 1.3. 2M,2K,2N Split cases
 
 2 matrix multiply, (2M,2K) @ (2K,2N)
 
-| 编号 | 拆分维度  | 子任务                             | 合并方式          | 所需通信                   | 对应并行策略                            |
-| ---- | --------- | ---------------------------------- | ----------------- | -------------------------- | --------------------------------------- |
-| 1    | M         | $ C_i = A_i B $                    | `concat` 行       | `gather`                   | Sequence/Data Parallel                  |
-| 2    | K         | $ C_i = A_i B_i $                  | `all-reduce sum`  | `all-reduce`               | Column Parallel (TP)                    |
-| 3    | N         | $ C_i = A B_i $                    | `concat` 列       | `gather`                   | Row Parallel (TP)                       |
-| 4    | M & K     | $ C_i = A_i B_i $                  | 分块乘法          | `all-reduce` + `broadcast` | 2D TP（部分）                           |
-| 5    | M & N     | $ C*{ij} = \sum_k A*{ik} B\_{kj} $ | 分块乘法          | `all-reduce`               | 2D Tensor Parallel                      |
-| 6    | K & N     | $ C_i = A_i B_i $                  | 分块乘法          | `all-reduce`               | 2D TP（列方向）                         |
-| 7    | M & N & K | $ C*{ij} = \sum_k A*{ik} B\_{kj} $ | 分块乘法 + reduce | `all-reduce` + `broadcast` | 3D Tensor Parallel / Cannon's Algorithm |
+| 拆分维度  | 单 GPU 结果                        | 合并方式          | 所需通信                      | usage          |
+| --------- | ---------------------------------- | ----------------- | ----------------------------- | -------------- |
+| M         | M1(M,2N),M2(M,2N)                  | [M1,M2]           | `gather` concat               | Column-wise TP |
+| K         | M1(2M,2N),M2(2M,2N)                | M1+M2             | `all-reduce` element-wise add | Row-wise TP    |
+| N         | $ C_i = A B_i $                    | `concat` 列       | `gather`                      |                |
+| M & K     | $ C_i = A_i B_i $                  | 分块乘法          | `all-reduce` + `broadcast`    |                |
+| M & N     | $ C*{ij} = \sum_k A*{ik} B\_{kj} $ | 分块乘法          | `all-reduce`                  |                |
+| K & N     | $ C_i = A_i B_i $                  | 分块乘法          | `all-reduce`                  |                |
+| M & N & K | $ C*{ij} = \sum_k A*{ik} B\_{kj} $ | 分块乘法 + reduce | `all-reduce` + `broadcast`    |                |
 
-# Tensor Parallelism (TP) Implementation Notes
+![tp](tp.png){width=400px}
+
+# 2. Tensor Parallelism (TP) Implementation Notes
 
 This document captures the implementation details of the Tensor Parallelism found in the `nanovllm` codebase.
 
-## 1. Orchestration via `model_runner.call()`
+## 2.1. Orchestration via `model_runner.call()`
 
 A key architectural choice is the use of `self.model_runner.call("run", ...)` instead of a direct call like `self.model_runner.run(...)`.
 
 This is designed to enable **Tensor Parallelism** across multiple GPUs. The `call()` method acts as a **Remote Procedure Call (RPC)** mechanism to ensure the same command is executed synchronously across all processes in the tensor parallel group.
 
-### The Problem with Direct Calls
+### 2.1.1. The Problem with Direct Calls
 
 In a tensor-parallel model, a direct call (`model_runner.run(...)`) would only be executed by the main process (`rank=0`). The worker processes (`rank > 0`) would remain idle. When the main process reaches a distributed communication point (e.g., `all_reduce`), it would wait forever for the workers that never started the task, causing the program to hang.
 
-### The `call()` Solution
+### 2.1.2. The `call()` Solution
 
 The `call()` method orchestrates the execution across all processes:
 
@@ -92,7 +94,7 @@ The `call()` method orchestrates the execution across all processes:
 
 This ensures all processes execute the `run` method in sync, allowing tensor parallelism to work correctly.
 
-## 3. How `multiprocessing.SharedMemory` is Implemented
+## 2.2. How `multiprocessing.SharedMemory` is Implemented
 
 `SharedMemory` is a Python wrapper around powerful OS primitives. On Linux, this is how it works:
 
@@ -104,7 +106,7 @@ This ensures all processes execute the `run` method in sync, allowing tensor par
    - `.close()` calls `munmap()`, detaching the memory from the current process.
    - `.unlink()` calls `shm_unlink()`, marking the object for deletion by the OS once all processes have detached from it. This prevents memory leaks.
 
-## 5. Data Race Avoidance in Shared Memory
+## 2.3. Data Race Avoidance in Shared Memory
 
 `multiprocessing.SharedMemory` on its own **does not** prevent data races. It is a raw block of memory, and the programmer is responsible for using **synchronization primitives** to orchestrate access.
 
@@ -116,7 +118,7 @@ The `nanovllm` code uses a `multiprocessing.Event` to implement a producer-consu
 
 This ensures that reading and writing operations are never performed simultaneously.
 
-## 6. Deep Dive: `multiprocessing.Event` Implementation
+## 2.4. Deep Dive: `multiprocessing.Event` Implementation
 
 An `Event` is a Python wrapper around efficient OS-level synchronization primitives. Its primary goal is to allow a process to `wait()` without burning CPU in a "busy-loop" (i.e., `while True: pass`).
 
@@ -127,29 +129,29 @@ The implementation on Linux is generally built from two components, both residin
 
 Here’s a simplified breakdown of how the methods work, using a **semaphore** as the underlying primitive.
 
-### The Components in Shared Memory
+### 2.4.1. The Components in Shared Memory
 
 Imagine a small block of shared memory is allocated for the Event. It contains:
 
 - `is_set_flag`: A boolean, initially `False`.
 - `semaphore`: An OS semaphore, initialized with a value of 0. A semaphore with a value of 0 will cause any process that tries to "wait" on it to go to sleep.
 
-### How the Methods are Implemented
+### 2.4.2. How the Methods are Implemented
 
-#### `Event.clear()`
+#### 2.4.2.1. `Event.clear()`
 
 1. It acquires a lock (to prevent race conditions with `set()` or `wait()`).
 2. It sets the `is_set_flag` in shared memory to `False`.
 3. It releases the lock.
 
-#### `Event.set()`
+#### 2.4.2.2. `Event.set()`
 
 1. It acquires the lock.
 2. It sets the `is_set_flag` in shared memory to `True`.
 3. It calls `sem_post()` on the OS semaphore. This is the "wake-up" call that increments the semaphore's value and tells the OS to wake up any processes that are currently sleeping on this semaphore.
 4. It releases the lock.
 
-#### `Event.wait()`
+#### 2.4.2.3. `Event.wait()`
 
 1. It acquires a lock.
 2. It first checks the `is_set_flag`.
@@ -158,7 +160,7 @@ Imagine a small block of shared memory is allocated for the Event. It contains:
 3. It releases the lock.
 4. It calls `sem_wait()` on the OS semaphore. The OS takes over, puts the process to sleep (consuming no CPU), and will only wake it when another process calls `set()`.
 
-### Why This is Efficient: The "Busy-Wait" Problem
+### 2.4.3. Why This is Efficient: The "Busy-Wait" Problem
 
 If you only had a shared boolean flag, your `wait()` would have to be a "busy-wait":
 
