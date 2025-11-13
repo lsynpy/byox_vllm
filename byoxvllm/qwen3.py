@@ -1,9 +1,10 @@
 import torch
+import torch.nn.functional as F
 from torch import nn
 from transformers import Qwen3Config
 
 from byoxvllm.attention import Attention
-from byoxvllm.layers import RotaryEmbedding
+from byoxvllm.layers import MergedLinear, RotaryEmbedding
 from byoxvllm.rmsnorm_kernel.norm import RMSNorm
 
 
@@ -60,21 +61,33 @@ class Qwen3Attention(nn.Module):
         return output
 
 
+class SiluAndMul(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    @torch.compile
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x, y = x.chunk(2, -1)
+        return F.silu(x) * y
+
+
 class Qwen3MLP(nn.Module):
     def __init__(self, hidden_size: int, intermediate_size: int):
         super().__init__()
         self.hidden_size = hidden_size
         self.intermediate_size = intermediate_size
-        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
-        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        self.gate_up_proj = MergedLinear(hidden_size, [intermediate_size, intermediate_size], bias=False)
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
-        self.act_fn = nn.SiLU()
+        self.act_fn = SiluAndMul()
 
+    # original:
+    #   mlp(X) = Wd @ (silu(Wg@X) * (Wu@X))
+    # fused:
+    #   gate_up(X) -> [gate(X), up(X)]
+    #   SiluAndMul([gate(X),up(X)]) = silu(gate(X)) * up(X)
     def forward(self, x):
-        gate_output = self.gate_proj(x)
-        up_output = self.up_proj(x)
-        act_output = self.act_fn(gate_output)
-        x = act_output * up_output
+        gate_up = self.gate_up_proj(x)
+        x = self.act_fn(gate_up)
         x = self.down_proj(x)
         return x
 
@@ -117,7 +130,7 @@ class Qwen3Model(nn.Module):
     ) -> torch.Tensor:
         hidden_states = self.embed_tokens(input_ids)
         residual = None
-        for decoder_layer in self.layers[:1]:
+        for decoder_layer in self.layers:
             hidden_states, residual = decoder_layer(positions, hidden_states, residual)
 
         hidden_states, _ = self.norm(hidden_states, residual)
@@ -125,6 +138,11 @@ class Qwen3Model(nn.Module):
 
 
 class Qwen3ForCausalLM(nn.Module):
+    packed_modules_mapping = {
+        "gate_proj": ("gate_up_proj", 0),
+        "up_proj": ("gate_up_proj", 1),
+    }
+
     def __init__(self, config: Qwen3Config) -> None:
         super().__init__()
         self.model = Qwen3Model(config)

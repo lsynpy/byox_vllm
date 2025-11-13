@@ -121,7 +121,7 @@ def compare_hidden_states(path1, path2, rtol=1e-3, atol=1e-3):
         name_a, _ = a["name"], b["name"]
         class_a, class_b = a["class"], b["class"]
         print(" " * name_a.count("."), end="")
-        print(f"{name_a} ({class_a} ↔ {class_b}) |", end=" ")
+        print(f"{name_a} ({class_a} <-> {class_b}) |", end=" ")
         try:
             torch.testing.assert_close(a["output"], b["output"], rtol=rtol, atol=atol)
             print("PASS ✅")

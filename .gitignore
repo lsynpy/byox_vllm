@@ -198,3 +198,4 @@ cython_debug/
 # Built Visual Studio Code Extensions
 *.vsix
 hidden_dumps/
+.qoder
