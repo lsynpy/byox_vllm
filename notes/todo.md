@@ -8,27 +8,27 @@
 - [x] SwiGLU
 - [x] RMSNorm
 - [x] QK-Norm
-- [ ] Dense model vs MoE model
+- [x] Dense model vs MoE model
 
 ## Validation and Testing
 
-- [ ] Validate correctness by using nanovllm as reference (with deterministic settings: temperature=1e-10, fixed seeds, torch.use_deterministic_algorithms)
+- [x] Validate correctness by using nanovllm as reference (with deterministic settings: temperature=1e-10, fixed seeds, torch.use_deterministic_algorithms)
 
 ## Performance Optimizations
 
-- [ ] Implement weight packing optimization for QKV and MLP projections
-- [ ] Add residual arg to RMSNorm.forward() and Qwen3DecoderLayer.forward()
-- [ ] Pre-compute and cache cos/sin values in RotaryEmbedding
-- [ ] Add FlashAttention for optimized attention computation
+- [x] Implement weight packing optimization for QKV and MLP projections
+- [x] Add residual arg to RMSNorm.forward() and Qwen3DecoderLayer.forward()
+- [x] Pre-compute and cache cos/sin values in RotaryEmbedding
+- [x] Add FlashAttention for optimized attention computation
 
 ## Inference Engine Features
 
 - [ ] Implement KV cache management with PagedAttention
 - [ ] Add block manager for memory allocation
-- [ ] Implement scheduler for batch management
+- [x] Implement scheduler for batch management
 - [ ] Add CUDA graph support for decode phase
 - [ ] Implement prefix caching for faster prompt processing
-- [ ] Add torch compilation for optimized sampling
+- [x] Add torch compilation for optimized sampling
 
 ## Distributed Computing Support
 
