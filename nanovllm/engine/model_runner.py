@@ -15,7 +15,7 @@ from nanovllm.utils.loader import load_model
 
 class ModelRunner:
     def __init__(self, config: Config, rank: int, event: Event | list[Event]):
-        self.config = config
+        self.config: Config = config
         hf_config = config.hf_config
         self.block_size = config.kvcache_block_size
         self.enforce_eager = config.enforce_eager
@@ -26,7 +26,7 @@ class ModelRunner:
         dist.init_process_group("nccl", "tcp://localhost:2333", world_size=self.world_size, rank=rank)
         torch.cuda.set_device(rank)
         default_dtype = torch.get_default_dtype()
-        torch.set_default_dtype(hf_config.torch_dtype)
+        torch.set_default_dtype(hf_config.dtype)
         torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model)
@@ -105,7 +105,7 @@ class ModelRunner:
         )
         num_seqs = min(max_num_batched_tokens // max_model_len, self.config.max_num_seqs)
         seqs = [Sequence([0] * max_model_len) for _ in range(num_seqs)]
-        self.run(seqs, True)
+        self.run(seqs, is_prefill=True)
         torch.cuda.empty_cache()
 
     def _allocate_kv_cache(self):
@@ -123,7 +123,7 @@ class ModelRunner:
             * self.block_size
             * num_kv_heads
             * head_dim
-            * hf_config.torch_dtype.itemsize
+            * hf_config.dtype.itemsize
         )
         config.num_kvcache_blocks = (
             int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes
