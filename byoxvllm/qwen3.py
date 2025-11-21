@@ -159,4 +159,4 @@ class Qwen3ForCausalLM(nn.Module):
         return hidden_states
 
     def compute_logits(self, hidden_states):
-        return self.lm_head(hidden_states)
+        return self.lm_head(hidden_states[-1:])

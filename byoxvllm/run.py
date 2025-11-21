@@ -72,11 +72,11 @@ def run_byoxvllm(prompt, t=0.6, num_tokens=1, dump_path=None):
     outputs = engine.generate([prompt], sampling_params)
 
     for output in outputs:
-        print(f"[byoxvllm] Generated token: {output['text']!r} <{output['token_ids']}>")
+        print(f"[byoxvllm] Generated token: {output['text']!r}\n <{output['token_ids']}>")
 
     if dump_path:
         torch.save(hidden_states, dump_path)
-        print(f"[byoxvllm] dumped {len(hidden_states)} layers to {dump_path}")
+        # print(f"[byoxvllm] dumped {len(hidden_states)} layers to {dump_path}")
 
     for h in handles:
         h.remove()
@@ -97,11 +97,11 @@ def run_nanovllm(prompt, t=0.6, num_tokens=1, dump_path=None):
     outputs = llm.generate([prompt], sampling_params, False)
 
     for output in outputs:
-        print(f"[nanovllm] Generated token: {output['text']!r} <{output['token_ids']}>")
+        print(f"[nanovllm] Generated token: {output['text']!r}\n <{output['token_ids']}>")
 
     if dump_path:
         torch.save(hidden_states, dump_path)
-        print(f"[nanovllm] dumped {len(hidden_states)} layers to {dump_path}")
+        # print(f"[nanovllm] dumped {len(hidden_states)} layers to {dump_path}")
 
     for h in handles:
         h.remove()
@@ -132,12 +132,13 @@ def compare_hidden_states(path1, path2, rtol=1e-3, atol=1e-3):
 if __name__ == "__main__":
     prompt = "The capital of France is"
     t = 0.6
+    num_tokens = 30
     dump_dir = "./hidden_dumps"
     os.makedirs(dump_dir, exist_ok=True)
 
     path_byox = os.path.join(dump_dir, "byoxvllm.pt")
     path_nano = os.path.join(dump_dir, "nanovllm.pt")
 
-    run_byoxvllm(prompt, t=t, dump_path=path_byox)
-    run_nanovllm(prompt, t=t, dump_path=path_nano)
-    compare_hidden_states(path_byox, path_nano)
+    # run_byoxvllm(prompt, t=t, num_tokens=num_tokens, dump_path=path_byox)
+    run_nanovllm(prompt, t=t, num_tokens=num_tokens, dump_path=path_nano)
+    # compare_hidden_states(path_byox, path_nano)
