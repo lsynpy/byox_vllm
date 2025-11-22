@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from random import randint, seed
@@ -7,13 +8,15 @@ from vllm import SamplingParams as vSP
 
 from nanovllm import LLM as nLLM
 from nanovllm import SamplingParams as nSP
+from nanovllm import set_global_log_level
+from nanovllm.utils.logging import logger
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 def bench(name, LLM, SamplingParams):
     seed(0)
-    num_seqs = 1024
+    num_seqs = 128
     max_input_len = 128
     max_ouput_len = 128
 
@@ -36,10 +39,11 @@ def bench(name, LLM, SamplingParams):
     llm.generate(prompt_token_ids, sampling_params, use_tqdm=False)
     t = time.time() - t
     total_tokens = sum(sp.max_tokens for sp in sampling_params)
-    print(f"[{name}] {total_tokens} tok, {t:.2f}s, {total_tokens / t:.2f} tok/s")
+    logger.info(f"[{name}] {total_tokens} tok, {t:.2f}s, {total_tokens / t:.2f} tok/s")
 
 
 def main():
+    set_global_log_level(logging.INFO)
     bench("vllm", vLLM, vSP)
     bench("nanovllm", nLLM, nSP)
 

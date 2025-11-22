@@ -4,6 +4,7 @@ import numpy as np
 import xxhash
 
 from nanovllm.engine.sequence import Sequence
+from nanovllm.utils.logging import logger
 
 
 class Block:
@@ -38,6 +39,7 @@ class BlockManager:
         assert not seq.block_table
         h = -1
         cache_miss = False
+        logger.debug(f"seq.num_blocks: {seq.num_blocks}" )
         for i in range(seq.num_blocks):
             token_ids = seq.block(i)
             h = self._compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
@@ -45,15 +47,20 @@ class BlockManager:
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
                 cache_miss = True
             if cache_miss:
+                logger.debug("cache miss")
                 block_id = self.free_block_ids[0]
                 block = self._allocate_block(block_id)
+                logger.debug(f"allocated block {block_id}")
             else:
+                logger.debug("cache hit")
                 seq.num_cached_tokens += self.block_size
                 if block_id in self.used_block_ids:
                     block = self.blocks[block_id]
                     block.ref_count += 1
                 else:
+                    # TODO: why this happens?
                     block = self._allocate_block(block_id)
+                    logger.debug("hit but allocate")
             if h != -1:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id

@@ -3,6 +3,7 @@ from enum import Enum, auto
 from itertools import count
 
 from nanovllm.sampling_params import SamplingParams
+from nanovllm.utils.logging import logger
 
 
 class SequenceStatus(Enum):
@@ -12,10 +13,11 @@ class SequenceStatus(Enum):
 
 
 class Sequence:
-    block_size = 256
     counter = count()
 
-    def __init__(self, token_ids: list[int], sampling_params=SamplingParams()):
+    def __init__(self, token_ids: list[int], block_size: int, sampling_params: SamplingParams = None):
+        if sampling_params is None:
+            sampling_params = SamplingParams()
         self.seq_id = next(Sequence.counter)
         self.status = SequenceStatus.WAITING
         self.token_ids = copy(token_ids)
@@ -27,6 +29,7 @@ class Sequence:
         self.temperature = sampling_params.temperature
         self.max_tokens = sampling_params.max_tokens
         self.ignore_eos = sampling_params.ignore_eos
+        self.block_size = block_size
 
     def __len__(self):
         return self.num_tokens
@@ -56,6 +59,7 @@ class Sequence:
 
     @property
     def num_blocks(self):
+        logger.debug(f"num_tokens={self.num_tokens}, block_size={self.block_size}")
         return (self.num_tokens + self.block_size - 1) // self.block_size
 
     @property

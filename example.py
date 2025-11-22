@@ -1,11 +1,14 @@
+import logging
 import os
 
 from transformers import AutoTokenizer
 
-from nanovllm import LLM, SamplingParams
+from nanovllm import LLM, SamplingParams, set_global_log_level
+from nanovllm.utils.logging import logger
 
 
 def main():
+    set_global_log_level(logging.INFO)
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
     tokenizer = AutoTokenizer.from_pretrained(path)
     llm = LLM(path, enforce_eager=True, tensor_parallel_size=1)
@@ -26,9 +29,9 @@ def main():
     outputs = llm.generate(prompts, sampling_params)
 
     for prompt, output in zip(prompts, outputs):
-        print("\n")
-        print(f"Prompt: {prompt!r}")
-        print(f"Completion: {output['text']!r}")
+        logger.debug("\n")
+        logger.debug(f"Prompt: {prompt!r}")
+        logger.debug(f"Completion: {output['text']!r}")
 
 
 if __name__ == "__main__":
