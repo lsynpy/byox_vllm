@@ -39,7 +39,6 @@ class BlockManager:
         assert not seq.block_table
         h = -1
         cache_miss = False
-        logger.debug(f"seq.num_blocks: {seq.num_blocks}" )
         for i in range(seq.num_blocks):
             token_ids = seq.block(i)
             h = self._compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
@@ -60,7 +59,7 @@ class BlockManager:
                 else:
                     # TODO: why this happens?
                     block = self._allocate_block(block_id)
-                    logger.debug("hit but allocate")
+                    logger.warning("hit but allocate")
             if h != -1:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id

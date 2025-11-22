@@ -3,7 +3,6 @@ from enum import Enum, auto
 from itertools import count
 
 from nanovllm.sampling_params import SamplingParams
-from nanovllm.utils.logging import logger
 
 
 class SequenceStatus(Enum):
@@ -59,7 +58,6 @@ class Sequence:
 
     @property
     def num_blocks(self):
-        logger.debug(f"num_tokens={self.num_tokens}, block_size={self.block_size}")
         return (self.num_tokens + self.block_size - 1) // self.block_size
 
     @property
