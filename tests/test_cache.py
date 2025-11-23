@@ -10,19 +10,19 @@ def test_prefill():
     manager = BlockManager(num_blocks, block_size)
 
     common_token_ids = [i for i in range(3) for _ in range(16)]  # Complete 3 blocks [0..0,1..1,2..2]
-    unique_token_ids = [3] * 4  # Incomplete 1 block (4 tokens)
-    all_token_ids = common_token_ids + unique_token_ids
 
     ########################################################################################
     # 1st seq: cache miss
-    seq0 = Sequence(all_token_ids, block_size)
-    manager.allocate(seq0)
+    unique_token_ids = [3] * 4  # Incomplete 1 block (4 tokens)
+    all_token_ids = common_token_ids + unique_token_ids
+    seq1 = Sequence(all_token_ids, block_size)
+    manager.allocate(seq1)
 
-    assert seq0.num_blocks == 4
-    assert seq0.block_table == [0, 1, 2, 3]
-    assert seq0.num_cached_tokens == 0
-    assert seq0.num_cached_blocks == 0
-    assert seq0.num_completion_tokens == 0
+    assert seq1.num_blocks == 4
+    assert seq1.block_table == [0, 1, 2, 3]
+    assert seq1.num_cached_tokens == 0
+    assert seq1.num_cached_blocks == 0
+    assert seq1.num_completion_tokens == 0
 
     assert len(manager.used_block_ids) == 4  # 3 common + 1 unique
     assert manager.used_block_ids == {0, 1, 2, 3}
@@ -69,7 +69,7 @@ def test_prefill():
         assert manager.blocks[block_id].hash is -1
         assert manager.blocks[block_id].ref_count == 1
 
-    manager.deallocate(seq0)
+    manager.deallocate(seq1)
     assert manager.free_block_ids == deque([5, 6, 7, 8, 9, 3])
     manager.deallocate(seq2)
     assert manager.free_block_ids == deque([5, 6, 7, 8, 9, 3, 4, 2, 1, 0])
@@ -89,3 +89,39 @@ def test_prefill():
     assert len(manager.used_block_ids) == 4  # 3 common + 1 unique
     assert manager.used_block_ids == {0, 1, 2, 5}
     assert manager.free_block_ids == deque([6, 7, 8, 9, 3, 4])
+
+    manager.deallocate(seq3)
+    assert manager.free_block_ids == deque([6, 7, 8, 9, 3, 4, 5, 2, 1, 0])
+
+    ########################################################################################
+    # 4rd seq: cache miss and eviction.
+    seq4 = Sequence([99] * 16 * 10, block_size)
+    manager.allocate(seq4)
+
+    assert seq4.num_blocks == 10
+    assert seq4.block_table == [6, 7, 8, 9, 3, 4, 5, 2, 1, 0]
+    assert seq4.num_cached_tokens == 0
+    assert seq4.num_cached_blocks == 0
+    assert seq4.num_completion_tokens == 0
+
+    assert len(manager.used_block_ids) == 10
+    assert manager.used_block_ids == {6, 7, 8, 9, 3, 4, 5, 2, 1, 0}
+    assert manager.free_block_ids == deque([])
+
+    manager.deallocate(seq4)
+    assert manager.free_block_ids == deque([0, 1, 2, 5, 4, 3, 9, 8, 7, 6])
+
+
+def test_decode():
+    block_size = 16
+    num_blocks = 10
+    manager = BlockManager(num_blocks, block_size)
+
+    common_token_ids = [i for i in range(3) for _ in range(16)]  # Complete 3 blocks [0..0,1..1,2..2]
+    unique_token_ids = [3] * 7
+    seq1 = Sequence(common_token_ids + unique_token_ids, block_size)
+    manager.allocate(seq1)
+
+
+def test_evict():
+    pass

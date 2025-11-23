@@ -11,6 +11,7 @@ from nanovllm.layers.sampler import Sampler
 from nanovllm.models.qwen3 import Qwen3ForCausalLM
 from nanovllm.utils.context import get_context, reset_context, set_context
 from nanovllm.utils.loader import load_model
+from nanovllm.utils.logging import logger
 
 
 class ModelRunner:
@@ -97,6 +98,7 @@ class ModelRunner:
             event.set()
 
     def _warmup_model(self):
+        logger.info("Warming up the model...")
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
         max_num_batched_tokens, max_model_len = (
@@ -109,6 +111,7 @@ class ModelRunner:
         torch.cuda.empty_cache()
 
     def _allocate_kv_cache(self):
+        logger.info("Allocating KV cache...")
         config = self.config
         hf_config = config.hf_config
         free, total = torch.cuda.mem_get_info()
@@ -250,6 +253,7 @@ class ModelRunner:
 
     @torch.inference_mode()
     def _capture_cudagraph(self):
+        logger.info("Capturing CUDA graphs for decoding...")
         config = self.config
         hf_config = config.hf_config
         max_bs = min(self.config.max_num_seqs, 512)

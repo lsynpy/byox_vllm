@@ -36,6 +36,7 @@ class BlockManager:
         return len(self.free_block_ids) >= seq.num_blocks
 
     def allocate(self, seq: Sequence):
+        logger.debug(f"allocating blocks for sequence of length {len(seq)} ...")
         assert not seq.block_table
         h = -1
         cache_miss = False
@@ -66,6 +67,7 @@ class BlockManager:
             seq.block_table.append(block_id)
 
     def deallocate(self, seq: Sequence):
+        logger.debug(f"deallocating blocks for sequence of length {len(seq)} ...")
         for block_id in reversed(seq.block_table):
             block = self.blocks[block_id]
             block.ref_count -= 1
