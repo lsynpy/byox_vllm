@@ -6,7 +6,7 @@ import torch.multiprocessing as mp
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer
 
-from nanovllm.config import Config
+from nanovllm.config import Config, SpeculativeConfig
 from nanovllm.engine.model_runner import ModelRunner
 from nanovllm.engine.scheduler import Scheduler
 from nanovllm.engine.sequence import Sequence
@@ -14,7 +14,7 @@ from nanovllm.sampling_params import SamplingParams
 
 
 class LLMEngine:
-    def __init__(self, model, **kwargs):
+    def __init__(self, model, speculative_config: SpeculativeConfig = None, **kwargs):
         config_fields = {field.name for field in fields(Config)}
         config_kwargs = {k: v for k, v in kwargs.items() if k in config_fields}
         config = Config(model, **config_kwargs)
