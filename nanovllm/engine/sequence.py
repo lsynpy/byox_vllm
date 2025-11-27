@@ -36,6 +36,9 @@ class Sequence:
     def __getitem__(self, key):
         return self.token_ids[key]
 
+    def __repr__(self):
+        return f"seq-{self.seq_id}"
+
     @property
     def is_finished(self):
         return self.status == SequenceStatus.FINISHED

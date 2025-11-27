@@ -14,6 +14,9 @@ class Block:
         self.hash = -1
         self.token_ids = []
 
+    def __repr__(self):
+        return f"block-{self.block_id}"
+
     def update(self, hash: int, token_ids: list[int]):
         self.hash = hash
         self.token_ids = token_ids
@@ -36,7 +39,7 @@ class BlockManager:
         return len(self.free_block_ids) >= seq.num_blocks
 
     def allocate(self, seq: Sequence):
-        logger.debug(f"allocating blocks for sequence of length {len(seq)} ...")
+        logger.debug(f"allocating blocks for {seq} ...")
         assert not seq.block_table
         h = -1
         cache_miss = False
@@ -47,27 +50,26 @@ class BlockManager:
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
                 cache_miss = True
             if cache_miss:
-                logger.debug("cache miss")
                 block_id = self.free_block_ids[0]
                 block = self._allocate_block(block_id)
-                logger.debug(f"allocated block {block_id}")
+                logger.debug(f"cache miss, allocated {block}")
             else:
-                logger.debug("cache hit")
                 seq.num_cached_tokens += self.block_size
                 if block_id in self.used_block_ids:
                     block = self.blocks[block_id]
                     block.ref_count += 1
+                    logger.debug(f"cache hit, reused {block}")
                 else:
                     # TODO: why this happens?
                     block = self._allocate_block(block_id)
-                    logger.warning("hit but allocate")
+                    logger.warning(f"hit but allocate {block}")
             if h != -1:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id
             seq.block_table.append(block_id)
 
     def deallocate(self, seq: Sequence):
-        logger.debug(f"deallocating blocks for sequence of length {len(seq)} ...")
+        logger.debug(f"deallocating blocks for {seq} ...")
         for block_id in reversed(seq.block_table):
             block = self.blocks[block_id]
             block.ref_count -= 1
@@ -77,25 +79,29 @@ class BlockManager:
         seq.block_table.clear()
 
     def can_append(self, seq: Sequence) -> bool:
-        return len(self.free_block_ids) >= (len(seq) % self.block_size == 1)
+        if len(seq) % self.block_size == 1:  # seq just append a new token, need a new block
+            return len(self.free_block_ids) >= 1
+        return True
 
     def may_append(self, seq: Sequence):
         block_table = seq.block_table
         last_block = self.blocks[block_table[-1]]
-        if len(seq) % self.block_size == 1:
+        if len(seq) % self.block_size == 1:  # seq just append a new token, and seq's blocks all filled
             assert last_block.hash != -1
             block_id = self.free_block_ids[0]
-            self._allocate_block(block_id)
+            block = self._allocate_block(block_id)
+            logger.debug(f"allocated new {block} for {seq}")
             block_table.append(block_id)
-        elif len(seq) % self.block_size == 0:
+        elif len(seq) % self.block_size == 0:  # seq's last block is now filled, need to update its hash
             assert last_block.hash == -1
             token_ids = seq.block(seq.num_blocks - 1)
             prefix = self.blocks[block_table[-2]].hash if len(block_table) > 1 else -1
             h = self._compute_hash(token_ids, prefix)
             last_block.update(h, token_ids)
+            logger.debug(f"updated hash of {last_block} for {seq}")
             self.hash_to_block_id[h] = last_block.block_id
         else:
-            assert last_block.hash == -1
+            assert last_block.hash == -1  # last block is not filled yet, no hash needed
 
     @classmethod
     def _compute_hash(cls, token_ids: list[int], prefix: int = -1):

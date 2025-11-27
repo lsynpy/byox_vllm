@@ -1,35 +1,24 @@
 import logging
 import os
 
-from transformers import AutoTokenizer
-
 from nanovllm import LLM, SamplingParams, set_global_log_level
 from nanovllm.utils.logging import logger
 
 
 def main():
-    set_global_log_level(logging.INFO)
+    set_global_log_level(logging.DEBUG)
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
-    tokenizer = AutoTokenizer.from_pretrained(path)
     llm = LLM(path, enforce_eager=False, tensor_parallel_size=1)
 
-    sampling_params = SamplingParams(temperature=0.6, max_tokens=512)
+    sampling_params = SamplingParams(temperature=0.6, max_tokens=32)
     prompts = [
         "List the first ten prime numbers:",
     ]
-    prompts = [
-        tokenizer.apply_chat_template(
-            [{"role": "user", "content": prompt}],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        for prompt in prompts
-    ]
-    outputs = llm.generate(prompts, sampling_params)
+    outputs = llm.generate(prompts, sampling_params, use_tqdm=False)
 
     for prompt, output in zip(prompts, outputs):
         logger.info(f"Prompt: {prompt!r}")
-        logger.info(f"Completion: {output['text']!r}")
+        logger.info(f"Completion: {output['text']}")
 
 
 if __name__ == "__main__":

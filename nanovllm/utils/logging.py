@@ -6,7 +6,10 @@ def init_logger(name: str | None = None, level: int = logging.DEBUG) -> logging.
     # Set up basic logging configuration if not already configured
     if not logging.getLogger().handlers:
         logging.basicConfig(
-            level=level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", stream=sys.stdout
+            level=level,
+            format="%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s",
+            datefmt="%H:%M:%S",
+            stream=sys.stdout,
         )
 
     logger = logging.getLogger(name)

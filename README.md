@@ -96,3 +96,15 @@ gpu_worker.Worker -> gpu_worker.Worker.GPUModelRunner do the heavy lift
 gpu_worker.Worker.GPUModelRunner()
 
 ```
+
+## prefill and decode
+
+prefill
+
+```sh
+input token_ids:
+  -> _prepare_prefill(seqs) -> input_ids, positions
+  -> _run_model(input_ids, position, prefill)
+  -> self.model(input_ids, positions) -> hidden_stats
+  -> self.model.compute_logits(hidden_stats)
+```
