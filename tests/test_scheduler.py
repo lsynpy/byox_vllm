@@ -18,16 +18,16 @@ def test_seq_waiting_for_allocation():
     unique_token_ids = [3] * 4  # Incomplete 1 block (4 tokens)
     all_token_ids = common_token_ids + unique_token_ids
 
-    seq1 = Sequence(all_token_ids, block_size)
-    scheduler.add(seq1)
+    seq0 = Sequence(all_token_ids, block_size)
+    scheduler.add(seq0)
     seqs, is_prefill = scheduler.schedule()
-    assert seqs == [seq1]
+    assert seqs == [seq0]
     assert is_prefill
 
-    seq2 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
-    scheduler.add(seq2)
+    seq1 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
+    scheduler.add(seq1)
     seqs, is_prefill = scheduler.schedule()
-    assert seqs == [seq1]
+    assert seqs == [seq0]
     assert not is_prefill
 
 
@@ -44,35 +44,35 @@ def test_max_batched_tokens_exceed():
         max_model_len=1000,
     )
     scheduler = Scheduler(config)
-    seq1 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
-    scheduler.add(seq1)
-    seqs, is_prefill = scheduler.schedule()  # only seq1 in queue, rotate has no effect
+    seq0 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
+    scheduler.add(seq0)
+    seqs, is_prefill = scheduler.schedule()  # only seq0 in queue, rotate has no effect
     assert seqs == []
     assert not is_prefill
 
     # 2 new seqs
-    seq2 = Sequence([i for i in range(3) for _ in range(block_size)], block_size)
+    seq1 = Sequence([i for i in range(3) for _ in range(block_size)], block_size)
+    scheduler.add(seq1)
+    seq2 = Sequence([i for i in range(3, 4) for _ in range(block_size)], block_size)
     scheduler.add(seq2)
-    seq3 = Sequence([i for i in range(3, 4) for _ in range(block_size)], block_size)
-    scheduler.add(seq3)
-    # seq1 is still at start of queue
+    # seq0 is still at start of queue
 
-    assert scheduler.waiting == deque([seq1, seq2, seq3])
-    seqs, is_prefill = scheduler.schedule()  # will rotate seq1 to the end of queue
+    assert scheduler.waiting == deque([seq0, seq1, seq2])
+    seqs, is_prefill = scheduler.schedule()  # will rotate seq0 to the end of queue
     assert seqs == []
     assert not is_prefill
-    assert scheduler.waiting == deque([seq2, seq3, seq1])
-    # seq2 do prefilling, then seq3 exceed, and rotate
+    assert scheduler.waiting == deque([seq1, seq2, seq0])
+    # seq1 do prefilling, then seq2 exceed, and rotate
     seqs, is_prefill = scheduler.schedule()
-    seq2.append_token(100)  # simulate prefilling phase to generate one token
+    seq1.append_token(100)  # simulate prefilling phase to generate one token
 
-    assert seqs == [seq2]
+    assert seqs == [seq1]
     assert is_prefill
-    assert scheduler.waiting == deque([seq1, seq3])
+    assert scheduler.waiting == deque([seq0, seq2])
     seqs, is_prefill = scheduler.schedule()
-    assert seqs == [seq2]
+    assert seqs == [seq1]
     assert not is_prefill
-    assert scheduler.waiting == deque([seq3, seq1])
+    assert scheduler.waiting == deque([seq2, seq0])
 
 
 def test_preemption():
@@ -82,23 +82,23 @@ def test_preemption():
     config = Config(model=path, kvcache_block_size=block_size, num_kvcache_blocks=num_blocks)
     scheduler = Scheduler(config)
 
-    # seq1 has 7 full blocks and 1 partial block, is running
-    seq1 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
-    scheduler.add(seq1)
+    # seq0 has 7 full blocks and 1 partial block, is running
+    seq0 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
+    scheduler.add(seq0)
     scheduler.schedule()
-    seq1.append_token(100)
+    seq0.append_token(100)
 
-    assert scheduler.running == deque([seq1])
+    assert scheduler.running == deque([seq0])
     assert scheduler.block_manager.free_block_ids == deque([7, 8, 9])
 
-    # seq2 has 2 full blocks, is running
-    seq2 = Sequence([i for i in range(7, 9) for _ in range(block_size)], block_size)
-    scheduler.add(seq2)
+    # seq1 has 2 full blocks, is running
+    seq1 = Sequence([i for i in range(7, 9) for _ in range(block_size)], block_size)
+    scheduler.add(seq1)
     scheduler.schedule()
-    seq2.append_token(101)
+    seq1.append_token(101)
 
-    assert scheduler.running == deque([seq1, seq2])
+    assert scheduler.running == deque([seq0, seq1])
     assert scheduler.block_manager.free_block_ids == deque([9])
 
-    # seq3 has 2 full blocks, and a new token, preemption will happen
+    # seq2 has 2 full blocks, and a new token, preemption will happen
     scheduler.schedule()
