@@ -21,7 +21,7 @@ class Scheduler:
     def add(self, seq: Sequence):
         logger.debug(f"Adding sequence {seq}")
         self.waiting.append(seq)
-        logger.debug(f"waiting: {self.waiting}")
+        logger.debug(f"append {seq} to waiting: {self.waiting}")
 
     def schedule(self) -> tuple[list[Sequence], bool]:
         logger.debug("Scheduling start ...")
@@ -35,7 +35,7 @@ class Scheduler:
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens:
                 logger.debug(f"Max batched tokens reached, cannot schedule {seq} for prefill")
                 self.waiting.rotate(-1)
-                logger.debug(f"waiting: {self.waiting}")
+                logger.debug(f"rotate waiting with -1: {self.waiting}")
                 break
             if not self.block_manager.can_allocate(seq):
                 logger.debug(f"Free blocks not enough, cannot schedule {seq} for prefill")
@@ -45,9 +45,9 @@ class Scheduler:
             num_batched_tokens += len(seq) - seq.num_cached_tokens
             seq.status = SequenceStatus.RUNNING
             self.waiting.popleft()
-            logger.debug(f"waiting: {self.waiting}")
+            logger.debug(f"popleft from waiting: {self.waiting}")
             self.running.append(seq)
-            logger.debug(f"running: {self.running}")
+            logger.debug(f"append {seq} to running: {self.running}")
             scheduled_seqs.append(seq)
         if scheduled_seqs:
             logger.debug(f"[prefill] Scheduled {scheduled_seqs} done")
@@ -57,11 +57,12 @@ class Scheduler:
         while self.running and num_seqs < self.max_num_seqs:
             seq = self.running.popleft()
             logger.debug(f"select {seq} to schedule for decode")
-            logger.debug(f"running: {self.running}")
+            logger.debug(f"popleft {seq} from running: {self.running}")
             while not self.block_manager.can_append(seq):
                 if self.running:
-                    self._preempt(self.running.pop())
-                    logger.debug(f"running: {self.running}")
+                    tmp_seq = self.running.pop()
+                    logger.debug(f"pop {tmp_seq} from running: {self.running}")
+                    self._preempt(tmp_seq)
                 else:
                     self._preempt(seq)
                     break
@@ -71,8 +72,9 @@ class Scheduler:
                 scheduled_seqs.append(seq)
 
         if scheduled_seqs:
-            self.running.extendleft(reversed(scheduled_seqs))
-            logger.debug(f"running: {self.running}")
+            rev_seqs = list(reversed(scheduled_seqs))
+            self.running.extendleft(rev_seqs)
+            logger.debug(f"extendleft {rev_seqs} to running: {self.running}")
             logger.debug(f"[decode] scheduled {scheduled_seqs} done")
             return scheduled_seqs, False
         else:
@@ -86,11 +88,11 @@ class Scheduler:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)
-                logger.debug(f"running: {self.running}")
+                logger.debug(f"remove {seq} from running: {self.running}")
 
     def _preempt(self, seq: Sequence):
         logger.debug(f"Preempting {seq}")
         seq.status = SequenceStatus.WAITING
         self.block_manager.deallocate(seq)
         self.waiting.appendleft(seq)
-        logger.debug(f"waiting: {self.waiting}")
+        logger.debug(f"appendleft {seq} to waiting: {self.waiting}")

@@ -99,6 +99,19 @@ def test_preemption():
 
     assert scheduler.running == deque([seq0, seq1])
     assert scheduler.block_manager.free_block_ids == deque([9])
+    assert seq0.block_table == [0, 1, 2, 3, 4, 5, 6]
+    assert seq1.block_table == [7, 8]
 
-    # seq2 has 2 full blocks, and a new token, preemption will happen
+    # seq1 has 2 full blocks, and a new token, preemption will happen
     scheduler.schedule()
+    # schedule() will loop twice.
+    # First iteration seq0 is scheduled for decode, and will allocate a new block.
+    # Second iteration, seq1 cannot append, preemption happened here.
+    # In the second iteration, after pop seq1, the running queue is [] (seq0 popped in first iteration).
+    # So seq1 itself will be preempted, and move to waiting queue, its blocks will be freed.
+    # After schedule(), seq0 will be put back to running queue.
+    assert scheduler.running == deque([seq0])
+    assert scheduler.waiting == deque([seq1])
+    assert scheduler.block_manager.free_block_ids == deque([8, 7])
+    assert seq0.block_table == [0, 1, 2, 3, 4, 5, 6, 9]
+    assert seq1.block_table == []
