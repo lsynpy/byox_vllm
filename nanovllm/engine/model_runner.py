@@ -55,7 +55,7 @@ class ModelRunner:
         return method(*args)
 
     def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
-        logger.info(f"Running model in {('prefill' if is_prefill else 'decode')} phase: {seqs}")
+        logger.debug(f"Running model in {('prefill' if is_prefill else 'decode')} phase: {seqs}")
         input_ids, positions = self._prepare_prefill(seqs) if is_prefill else self._prepare_decode(seqs)
         temperatures = self._prepare_sample(seqs) if self.rank == 0 else None
         logits = self._run_model(input_ids, positions, is_prefill)

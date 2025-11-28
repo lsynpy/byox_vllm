@@ -51,18 +51,20 @@ class BlockManager:
                 cache_miss = True
             if cache_miss:
                 block_id = self.free_block_ids[0]
-                block = self._allocate_block(block_id)
+                block = self.blocks[block_id]
+                self._allocate_block(block)
                 logger.debug(f"cache miss, allocated {block}")
             else:
                 seq.num_cached_tokens += self.block_size
+                block = self.blocks[block_id]
                 if block_id in self.used_block_ids:
-                    block = self.blocks[block_id]
                     block.ref_count += 1
                     logger.debug(f"cache hit, reused {block}")
                 else:
-                    # TODO: why this happens?
-                    block = self._allocate_block(block_id)
-                    logger.warning(f"hit but allocate {block}")
+                    # When block deallocated, its hash and token_ids are kept,
+                    # so there is chance to hit while block is free.
+                    self._allocate_block(block)
+                    logger.debug(f"cache hit but {block} is deallocated, re-allocated it")
             if h != -1:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id
@@ -74,7 +76,7 @@ class BlockManager:
             block = self.blocks[block_id]
             block.ref_count -= 1
             if block.ref_count == 0:
-                self._deallocate_block(block_id)
+                self._deallocate_block(block)
         seq.num_cached_tokens = 0
         seq.block_table.clear()
 
@@ -89,7 +91,8 @@ class BlockManager:
         if len(seq) % self.block_size == 1:  # seq just append a new token, and seq's blocks all filled
             assert last_block.hash != -1
             block_id = self.free_block_ids[0]
-            block = self._allocate_block(block_id)
+            block = self.blocks[block_id]
+            self._allocate_block(block)
             logger.debug(f"allocated new {block} for {seq}")
             block_table.append(block_id)
         elif len(seq) % self.block_size == 0:  # seq's last block is now filled, need to update its hash
@@ -111,15 +114,17 @@ class BlockManager:
         h.update(np.array(token_ids).tobytes())
         return h.intdigest()
 
-    def _allocate_block(self, block_id: int) -> Block:
-        block = self.blocks[block_id]
+    def _allocate_block(self, block: Block) -> Block:
         assert block.ref_count == 0
         block.reset()
-        self.free_block_ids.remove(block_id)
-        self.used_block_ids.add(block_id)
-        return self.blocks[block_id]
+        self.free_block_ids.remove(block.block_id)
+        self.used_block_ids.add(block.block_id)
+        return self.blocks[block.block_id]
 
-    def _deallocate_block(self, block_id: int) -> Block:
-        assert self.blocks[block_id].ref_count == 0
-        self.used_block_ids.remove(block_id)
-        self.free_block_ids.append(block_id)
+    def _deallocate_block(self, block: Block) -> Block:
+        assert block.ref_count == 0
+        self.used_block_ids.remove(block.block_id)
+        self.free_block_ids.append(block.block_id)
+        # keep stale hash -> token_ids mapping, by design
+        # if block.hash != -1 and self.hash_to_block_id[block.hash] == block.block_id:
+        #     del self.hash_to_block_id[block.hash]

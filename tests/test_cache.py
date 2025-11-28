@@ -125,3 +125,20 @@ def test_decode():
 
 def test_evict():
     pass
+
+
+def test_stale_hash_mapping():
+    block_size = 16
+    num_blocks = 10
+    manager = BlockManager(num_blocks, block_size)
+
+    seq0 = Sequence([i for i in range(8) for _ in range(16)], block_size)
+    manager.allocate(seq0)
+    manager.deallocate(seq0)
+    assert len(manager.hash_to_block_id) == 8
+
+    seq1 = Sequence([i for i in range(8, 16) for _ in range(16)], block_size)
+    manager.allocate(seq1)
+    assert len(manager.hash_to_block_id) == 16
+    manager.deallocate(seq0)
+    assert len(manager.hash_to_block_id) == 16
