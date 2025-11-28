@@ -134,6 +134,7 @@ class ModelRunner:
             int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes
         )
         assert config.num_kvcache_blocks > 0
+        logger.debug(f"number of kv cache blocks: {config.num_kvcache_blocks}")
         self.kv_cache = torch.empty(
             2,
             hf_config.num_hidden_layers,
@@ -241,6 +242,7 @@ class ModelRunner:
         else:
             bs = input_ids.size(0)
             context = get_context()
+            # expand batch to nearest graph batch, there will be empty batches
             graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]
             graph_vars = self.graph_vars
             graph_vars["input_ids"][:bs] = input_ids
@@ -273,7 +275,7 @@ class ModelRunner:
         for bs in reversed(self.graph_bs):
             graph = torch.cuda.CUDAGraph()
             set_context(
-                False,
+                is_prefill=False,
                 slot_mapping=slot_mapping[:bs],
                 context_lens=context_lens[:bs],
                 block_tables=block_tables[:bs],

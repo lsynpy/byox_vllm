@@ -13,6 +13,8 @@ def main():
     sampling_params = SamplingParams(temperature=0.6, max_tokens=32)
     prompts = [
         "List the first ten prime numbers:",
+        "The capital of France is",
+        "Once upon a time in a land far, far away,",
     ]
     outputs = llm.generate(prompts, sampling_params, use_tqdm=False)
 
