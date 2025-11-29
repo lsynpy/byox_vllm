@@ -134,7 +134,6 @@ class ModelRunner:
             int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes
         )
         assert config.num_kvcache_blocks > 0
-        logger.debug(f"number of kv cache blocks: {config.num_kvcache_blocks}")
         self.kv_cache = torch.empty(
             2,
             hf_config.num_hidden_layers,
@@ -142,6 +141,11 @@ class ModelRunner:
             self.block_size,
             num_kv_heads,
             head_dim,
+        )
+        logger.info(
+            f"allocated {self.kv_cache.nbytes / (1024**3):.2f} GB, "
+            f"{config.num_kvcache_blocks} blocks, "
+            f"{self.kv_cache.nbytes / (1024**2) / config.num_kvcache_blocks:.2f} MB per block"
         )
         layer_id = 0
         for module in self.model.modules():
