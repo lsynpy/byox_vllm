@@ -2,13 +2,19 @@ import pickle
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.synchronize import Event
 
+import numpy as np
 import torch
 import torch.distributed as dist
 
 from nanovllm.config import Config
+from nanovllm.engine.input_batch import InputBatch
+from nanovllm.engine.scheduler import DecodeType, SchedulerOutput
 from nanovllm.engine.sequence import Sequence
-from nanovllm.layers.sampler import Sampler
 from nanovllm.models.qwen3 import Qwen3ForCausalLM
+from nanovllm.sample.rejection_sampler import RejectionSampler
+from nanovllm.sample.sampler import Sampler
+from nanovllm.spec_decode.metadata import SpecDecodeMetadata
+from nanovllm.spec_decode.ngram_proposer import NgramProposer
 from nanovllm.utils.context import get_context, reset_context, set_context
 from nanovllm.utils.loader import load_model
 from nanovllm.utils.logging import logger
@@ -21,8 +27,35 @@ class ModelRunner:
         self.block_size = config.kvcache_block_size
         self.enforce_eager = config.enforce_eager
         self.world_size = config.tensor_parallel_size
+        self.speculative_config = config.speculative_config
         self.rank = rank
         self.event = event
+
+        self.sampler = Sampler()
+        self.num_spec_tokens = 0
+        if self.speculative_config:
+            self.drafter: NgramProposer
+            if self.speculative_config.method == "ngram":
+                self.drafter = NgramProposer(self.config)
+            else:
+                raise ValueError(f"Unknown speculative decoding method: {self.speculative_config.method}")
+            self.rejection_sampler = RejectionSampler(self.sampler)
+            self.num_spec_tokens = self.speculative_config.num_speculative_tokens
+        self.input_batch = InputBatch(
+            max_num_reqs=self.config.max_num_seqs,
+            max_model_len=self.config.max_model_len,
+            max_num_batched_tokens=self.config.max_num_batched_tokens,
+            device=self.device,
+            pin_memory=True,
+            vocab_size=self.config.hf_config.get_vocab_size(),
+            block_sizes=[self.config.kvcache_block_size],
+            kernel_block_sizes=[self.config.kvcache_block_size],
+            is_spec_decode=bool(self.config.speculative_config),
+        )
+        self.arange_np = np.arange(
+            max(self.config.max_num_seqs + 1, self.config.max_model_len),
+            dtype=np.int64,
+        )
 
         dist.init_process_group("nccl", "tcp://localhost:2333", world_size=self.world_size, rank=rank)
         torch.cuda.set_device(rank)
@@ -31,7 +64,6 @@ class ModelRunner:
         torch.set_default_device("cuda")
         self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model)
-        self.sampler = Sampler()
         self._warmup_model()
         self._allocate_kv_cache()
         if not self.enforce_eager:
@@ -54,13 +86,12 @@ class ModelRunner:
         method = getattr(self, method_name, None)
         return method(*args)
 
-    def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
-        logger.debug(f"Running model in {('prefill' if is_prefill else 'decode')} phase: {seqs}")
-        input_ids, positions = self._prepare_prefill(seqs) if is_prefill else self._prepare_decode(seqs)
-        temperatures = self._prepare_sample(seqs) if self.rank == 0 else None
-        logits = self._run_model(input_ids, positions, is_prefill)
-        token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
-        logger.debug(f"input: {input_ids}, pos: {positions} -> logits<{logits.shape}> -> toks: {token_ids}")
+    def run(self, scheduler_output: SchedulerOutput) -> list[int]:
+        seqs = scheduler_output.scheduled_seqs
+        decode_type = scheduler_output.decode_type
+        logger.debug(f"Running model in {decode_type} phase: {seqs}")
+        hidden_states, input_batch, sampling_metadata = self._execute_model(scheduler_output)
+        token_ids = self._sample_tokens(hidden_states, input_batch, sampling_metadata)
         reset_context()
         return token_ids
 
@@ -109,7 +140,7 @@ class ModelRunner:
         )
         num_seqs = min(max_num_batched_tokens // max_model_len, self.config.max_num_seqs)
         seqs = [Sequence([0] * max_model_len, self.block_size) for _ in range(num_seqs)]
-        self.run(seqs, is_prefill=True)
+        self.run(seqs, decode_type=True)
         torch.cuda.empty_cache()
 
     def _allocate_kv_cache(self):
@@ -145,7 +176,8 @@ class ModelRunner:
         logger.info(
             f"allocated {self.kv_cache.nbytes / (1024**3):.2f} GB, "
             f"{config.num_kvcache_blocks} blocks, "
-            f"{self.kv_cache.nbytes / (1024**2) / config.num_kvcache_blocks:.2f} MB per block"
+            f"{self.kv_cache.nbytes / (1024**2) / config.num_kvcache_blocks:.2f} MB per block,"
+            f"block size: {self.block_size}"
         )
         layer_id = 0
         for module in self.model.modules():
@@ -161,6 +193,35 @@ class ModelRunner:
             non_blocking=True
         )
         return block_tables
+
+    def _prepare_inputs(self, scheduler_output: SchedulerOutput):
+        seqs = scheduler_output.scheduled_seqs
+        decode_type = scheduler_output.decode_type
+        if decode_type == DecodeType.PREFILL:
+            return self._prepare_prefill(seqs)
+        elif decode_type == DecodeType.AR:
+            return self._prepare_decode(seqs)
+        elif decode_type == DecodeType.SD:
+            return self._prepare_spec_decode(seqs)
+
+    def _prepare_spec_decode(self, scheduler_output: SchedulerOutput):
+        seqs = scheduler_output.scheduled_seqs
+        input_ids, positions, _ = self._prepare_prefill(seqs)
+        num_reqs = self.input_batch.num_reqs
+        num_draft_tokens = np.zeros(num_reqs, dtype=np.int32)
+        for (
+            req_id,
+            draft_token_ids,
+        ) in scheduler_output.scheduled_spec_decode_tokens.items():
+            req_idx = self.input_batch.req_id_to_index[req_id]
+            num_draft_tokens[req_idx] = len(draft_token_ids)
+
+        req_ids = self.input_batch.req_ids
+        tokens = [scheduler_output.num_scheduled_tokens[i] for i in req_ids]
+        num_scheduled_tokens = np.array(tokens, dtype=np.int32)
+        cu_num_tokens, _ = self._get_cumsum_and_arange(num_scheduled_tokens)
+        spec_decode_metadata = self._calc_spec_decode_metadata(num_draft_tokens, cu_num_tokens)
+        return input_ids, positions, spec_decode_metadata
 
     def _prepare_prefill(self, seqs: list[Sequence]):
         input_ids = []
@@ -206,7 +267,7 @@ class ModelRunner:
         set_context(
             True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables
         )
-        return input_ids, positions
+        return input_ids, positions, None
 
     def _prepare_decode(self, seqs: list[Sequence]):
         input_ids = []
@@ -228,7 +289,7 @@ class ModelRunner:
         )
         block_tables = self._prepare_block_tables(seqs)
         set_context(False, slot_mapping=slot_mapping, context_lens=context_lens, block_tables=block_tables)
-        return input_ids, positions
+        return input_ids, positions, None
 
     def _prepare_sample(self, seqs: list[Sequence]):
         temperatures = []
@@ -240,8 +301,13 @@ class ModelRunner:
         return temperatures
 
     @torch.inference_mode()
-    def _run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool):
-        if is_prefill or self.enforce_eager or input_ids.size(0) > 512:
+    def _execute_model(self, input_ids: torch.Tensor, positions: torch.Tensor, decode_type: DecodeType):
+        if (
+            self.enforce_eager
+            or input_ids.size(0) > self.config.max_cudagraph_batch_size
+            or decode_type == DecodeType.PREFILL
+            or decode_type == DecodeType.SD
+        ):
             return self.model.compute_logits(self.model(input_ids, positions))
         else:
             bs = input_ids.size(0)
@@ -260,11 +326,32 @@ class ModelRunner:
             return self.model.compute_logits(graph_vars["outputs"][:bs])
 
     @torch.inference_mode()
+    def _sample_tokens(self, logits, hidden_states, input_batch, sampling_metadata, spec_decode_metadata):
+        sampling_metadata = self.input_batch.sampling_metadata
+        if spec_decode_metadata is None:
+            # Update output token ids with tokens sampled in last step
+            # if async scheduling and required by current sampling params.
+            self.input_batch.update_async_output_token_ids()
+            return self.sampler(
+                logits=logits,
+                sampling_metadata=sampling_metadata,
+            )
+
+        sampled_token_ids = self.rejection_sampler(
+            spec_decode_metadata,
+            None,  # draft_probs
+            logits,
+            sampling_metadata,
+        )
+        self._update_states_after_model_execute(sampled_token_ids)
+        return sampled_token_ids
+
+    @torch.inference_mode()
     def _capture_cudagraph(self):
         logger.info("Capturing CUDA graphs for decoding...")
         config = self.config
         hf_config = config.hf_config
-        max_bs = min(self.config.max_num_seqs, 512)
+        max_bs = self.config.max_cudagraph_batch_size
         max_num_blocks = (config.max_model_len + self.block_size - 1) // self.block_size
         input_ids = torch.zeros(max_bs, dtype=torch.int64)
         positions = torch.zeros(max_bs, dtype=torch.int64)
@@ -300,4 +387,87 @@ class ModelRunner:
             context_lens=context_lens,
             block_tables=block_tables,
             outputs=outputs,
+        )
+
+    def _get_cumsum_and_arange(
+        self,
+        num_tokens: np.ndarray,
+        cumsum_dtype: np.dtype | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Get the cumulative sum and batched arange of the given array.
+        # E.g., [2, 5, 3] -> ([2, 7, 10], [0, 1, 0, 1, 2, 3, 4, 0, 1, 2])
+        # Equivalent to but faster than:
+        # np.concatenate([np.arange(n) for n in num_tokens])
+        """
+        # Step 1. [2, 5, 3] -> [2, 7, 10]
+        cu_num_tokens = np.cumsum(num_tokens, dtype=cumsum_dtype)
+        total_num_tokens = cu_num_tokens[-1]
+        # Step 2. [2, 7, 10] -> [0, 0, 2, 2, 2, 2, 2, 7, 7, 7]
+        cumsums_offsets = np.repeat(cu_num_tokens - num_tokens, num_tokens)
+        # Step 3. [0, 1, 0, 1, 2, 3, 4, 0, 1, 2]
+        arange = self.arange_np[:total_num_tokens] - cumsums_offsets
+
+        return cu_num_tokens, arange
+
+    def _calc_spec_decode_metadata(
+        self,
+        num_draft_tokens: np.ndarray,
+        cu_num_scheduled_tokens: np.ndarray,
+    ) -> SpecDecodeMetadata:
+        # Inputs:
+        # cu_num_scheduled_tokens:  [  4, 104, 107, 207, 209]
+        # num_draft_tokens:         [  3,   0,   2,   0,   1]
+        # Outputs:
+        # cu_num_draft_tokens:      [  3,   3,   5,   5,   6]
+        # logits_indices:           [  0,   1,   2,   3, 103, 104, 105, 106,
+        #                            206, 207, 208]
+        # target_logits_indices:    [  0,   1,   2,   5,   6,   9]
+        # bonus_logits_indices:     [  3,   4,   7,   8,  10]
+
+        # Compute the logits indices.
+        # [4, 1, 3, 1, 2]
+        num_sampled_tokens = num_draft_tokens + 1
+
+        # Step 1. cu_num_sampled_tokens: [4, 5, 8, 9, 11]
+        # arange: [0, 1, 2, 3, 0, 0, 1, 2, 0, 0, 1]
+        cu_num_sampled_tokens, arange = self._get_cumsum_and_arange(
+            num_sampled_tokens, cumsum_dtype=np.int32
+        )
+        # Step 2. [0, 0, 0, 0, 103, 104, 104, 104, 206, 207, 207]
+        logits_indices = np.repeat(cu_num_scheduled_tokens - num_sampled_tokens, num_sampled_tokens)
+        # Step 3. [0, 1, 2, 3, 103, 104, 105, 106, 206, 207, 208]
+        logits_indices += arange
+
+        # Compute the bonus logits indices.
+        bonus_logits_indices = cu_num_sampled_tokens - 1
+
+        # Compute the draft logits indices.
+        # cu_num_draft_tokens: [3, 3, 5, 5, 6]
+        # arange: [0, 1, 2, 0, 1, 0]
+        cu_num_draft_tokens, arange = self._get_cumsum_and_arange(num_draft_tokens, cumsum_dtype=np.int32)
+        # [0, 0, 0, 5, 5, 9]
+        target_logits_indices = np.repeat(cu_num_sampled_tokens - num_sampled_tokens, num_draft_tokens)
+        # [0, 1, 2, 5, 6, 9]
+        target_logits_indices += arange
+
+        # TODO: Optimize the CPU -> GPU copy.
+        cu_num_draft_tokens = torch.from_numpy(cu_num_draft_tokens).to(self.device, non_blocking=True)
+        cu_num_sampled_tokens = torch.from_numpy(cu_num_sampled_tokens).to(self.device, non_blocking=True)
+        logits_indices = torch.from_numpy(logits_indices).to(self.device, non_blocking=True)
+        target_logits_indices = torch.from_numpy(target_logits_indices).to(self.device, non_blocking=True)
+        bonus_logits_indices = torch.from_numpy(bonus_logits_indices).to(self.device, non_blocking=True)
+
+        # Compute the draft token ids.
+        # draft_token_indices:      [  1,   2,   3, 105, 106, 208]
+        draft_token_ids = self.input_ids.gpu[logits_indices]
+        draft_token_ids = draft_token_ids[target_logits_indices + 1]
+
+        return SpecDecodeMetadata(
+            draft_token_ids=draft_token_ids,
+            num_draft_tokens=num_draft_tokens.tolist(),
+            cu_num_draft_tokens=cu_num_draft_tokens,
+            cu_num_sampled_tokens=cu_num_sampled_tokens,
+            target_logits_indices=target_logits_indices,
+            bonus_logits_indices=bonus_logits_indices,
+            logits_indices=logits_indices,
         )

@@ -6,16 +6,16 @@ import torch.multiprocessing as mp
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer
 
-from nanovllm.config import Config, SpeculativeConfig
+from nanovllm.config import Config
 from nanovllm.engine.model_runner import ModelRunner
 from nanovllm.engine.scheduler import Scheduler
 from nanovllm.engine.sequence import Sequence
-from nanovllm.sampling_params import SamplingParams
+from nanovllm.sample.sampling_params import SamplingParams
 from nanovllm.utils.logging import logger
 
 
 class LLMEngine:
-    def __init__(self, model, speculative_config: SpeculativeConfig = None, **kwargs):
+    def __init__(self, model, **kwargs):
         config_fields = {field.name for field in fields(Config)}
         config_kwargs = {k: v for k, v in kwargs.items() if k in config_fields}
         config = Config(model, **config_kwargs)
@@ -89,16 +89,16 @@ class LLMEngine:
         self.scheduler.add(seq)
 
     def _step(self):
-        seqs, is_prefill = self.scheduler.schedule()
+        scheduler_output = self.scheduler.schedule()
+        seqs = scheduler_output.scheduled_seqs
         if not seqs:
             outputs = []
             num_tokens = 0
             return outputs, num_tokens
-        token_ids = self.model_runner.call("run", seqs, is_prefill)
+        token_ids = self.model_runner.call("run", scheduler_output)
         self.scheduler.postprocess(seqs, token_ids)
         outputs = [(seq.seq_id, seq.completion_token_ids) for seq in seqs if seq.is_finished]
-        num_tokens = sum(len(seq) for seq in seqs) if is_prefill else -len(seqs)
-        return outputs, num_tokens
+        return outputs, scheduler_output.total_num_scheduled_tokens
 
     def _is_finished(self):
         return self.scheduler.is_finished()

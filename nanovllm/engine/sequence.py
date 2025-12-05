@@ -2,7 +2,7 @@ from copy import copy
 from enum import Enum, auto
 from itertools import count
 
-from nanovllm.sampling_params import SamplingParams
+from nanovllm.sample.sampling_params import SamplingParams
 
 
 class SequenceStatus(Enum):
@@ -20,6 +20,7 @@ class Sequence:
         self.seq_id = next(Sequence.counter)
         self.status = SequenceStatus.WAITING
         self.token_ids = copy(token_ids)
+        self.spec_token_ids: list[int] = []
         self.last_token = token_ids[-1]
         self.num_tokens = len(self.token_ids)
         self.num_prompt_tokens = len(token_ids)
