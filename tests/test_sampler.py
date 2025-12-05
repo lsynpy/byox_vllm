@@ -1,5 +1,6 @@
 import torch
-from nanovllm.layers.sampler import Sampler
+
+from nanovllm.sample.sampler import Sampler
 
 
 def test_sampler_temperature_zero():

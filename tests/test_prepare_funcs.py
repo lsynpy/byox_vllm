@@ -19,7 +19,7 @@ def test_prepare_prefill_single_sequence():
     seq = Sequence([1, 2, 3, 4, 5], block_size=runner.block_size)
     seq.block_table = [0]
     seq.num_cached_tokens = 0
-    input_ids, positions = runner._prepare_prefill([seq])
+    input_ids, positions, _ = runner._prepare_prefill([seq])
     context = get_context()
 
     assert context.is_prefill
@@ -43,7 +43,7 @@ def test_prepare_prefill_multiple_sequences():
     seq1.block_table = [1]
     seq0.num_cached_tokens = 0
     seq1.num_cached_tokens = 0
-    input_ids, positions = runner._prepare_prefill([seq0, seq1])
+    input_ids, positions, _ = runner._prepare_prefill([seq0, seq1])
     context = get_context()
 
     assert context.is_prefill
@@ -64,7 +64,7 @@ def test_prepare_prefill_with_cached_tokens():
     seq = Sequence([1, 2, 3, 4, 5, 6], block_size=runner.block_size)
     seq.num_cached_tokens = 3
     seq.block_table = [0, 1]
-    input_ids, positions = runner._prepare_prefill([seq])
+    input_ids, positions, _ = runner._prepare_prefill([seq])
     context = get_context()
 
     assert context.is_prefill
@@ -87,7 +87,7 @@ def test_prepare_decode_single_sequence():
     seq.block_table = [0, -1, -1, -1]
     seq.num_cached_tokens = 0
     runner._prepare_block_tables = Mock(return_value=torch.tensor([[0, -1, -1, -1]], dtype=torch.int32))
-    input_ids, positions = runner._prepare_decode([seq])
+    input_ids, positions, _ = runner._prepare_decode([seq])
     context = get_context()
 
     assert not context.is_prefill
@@ -114,7 +114,7 @@ def test_prepare_decode_multiple_sequences():
     runner._prepare_block_tables = Mock(
         return_value=torch.tensor([[0, -1, -1, -1], [1, -1, -1, -1]], dtype=torch.int32)
     )
-    input_ids, positions = runner._prepare_decode([seq0, seq1])
+    input_ids, positions, _ = runner._prepare_decode([seq0, seq1])
     context = get_context()
 
     assert not context.is_prefill
@@ -138,7 +138,7 @@ def test_prepare_prefill_multiple_with_cached_tokens():
     seq1.num_cached_tokens = 1
     seq0.block_table = [0]
     seq1.block_table = [1]
-    input_ids, positions = runner._prepare_prefill([seq0, seq1])
+    input_ids, positions, _ = runner._prepare_prefill([seq0, seq1])
     context = get_context()
 
     assert context.is_prefill
@@ -161,7 +161,7 @@ def test_prepare_decode_with_cached_tokens():
     seq.block_table = [0, -1, -1, -1]
     seq.num_cached_tokens = 2
     runner._prepare_block_tables = Mock(return_value=torch.tensor([[0, -1, -1, -1]], dtype=torch.int32))
-    input_ids, positions = runner._prepare_decode([seq])
+    input_ids, positions, _ = runner._prepare_decode([seq])
     context = get_context()
 
     assert not context.is_prefill
@@ -190,7 +190,7 @@ def test_prepare_decode_multiple_with_cached_tokens():
     runner._prepare_block_tables = Mock(
         return_value=torch.tensor([[0, -1, -1, -1], [1, -1, -1, -1]], dtype=torch.int32)
     )
-    input_ids, positions = runner._prepare_decode([seq0, seq1])
+    input_ids, positions, _ = runner._prepare_decode([seq0, seq1])
     context = get_context()
 
     assert not context.is_prefill

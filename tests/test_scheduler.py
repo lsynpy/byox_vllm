@@ -2,7 +2,7 @@ import os
 from collections import deque
 
 from nanovllm.config import Config
-from nanovllm.engine.scheduler import Scheduler
+from nanovllm.engine.scheduler import DecodeType, Scheduler
 from nanovllm.engine.sequence import Sequence
 
 
@@ -20,13 +20,17 @@ def test_seq_waiting_for_allocation():
 
     seq0 = Sequence(all_token_ids, block_size)
     scheduler.add(seq0)
-    seqs, is_prefill = scheduler.schedule()
+    output = scheduler.schedule()
+    seqs = output.scheduled_seqs
+    is_prefill = output.decode_type == DecodeType.PREFILL
     assert seqs == [seq0]
     assert is_prefill
 
     seq1 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
     scheduler.add(seq1)
-    seqs, is_prefill = scheduler.schedule()
+    output = scheduler.schedule()
+    seqs = output.scheduled_seqs
+    is_prefill = output.decode_type == DecodeType.PREFILL
     assert seqs == [seq0]
     assert not is_prefill
 
@@ -46,7 +50,9 @@ def test_max_batched_tokens_exceed():
     scheduler = Scheduler(config)
     seq0 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
     scheduler.add(seq0)
-    seqs, is_prefill = scheduler.schedule()  # only seq0 in queue, rotate has no effect
+    output = scheduler.schedule()  # only seq0 in queue, rotate has no effect
+    seqs = output.scheduled_seqs if output.scheduled_seqs else []
+    is_prefill = output.decode_type == DecodeType.PREFILL
     assert seqs == []
     assert not is_prefill
 
@@ -58,18 +64,24 @@ def test_max_batched_tokens_exceed():
     # seq0 is still at start of queue
 
     assert scheduler.waiting == deque([seq0, seq1, seq2])
-    seqs, is_prefill = scheduler.schedule()  # will rotate seq0 to the end of queue
+    output = scheduler.schedule()  # will rotate seq0 to the end of queue
+    seqs = output.scheduled_seqs if output.scheduled_seqs else []
+    is_prefill = output.decode_type == DecodeType.PREFILL
     assert seqs == []
     assert not is_prefill
     assert scheduler.waiting == deque([seq1, seq2, seq0])
     # seq1 do prefilling, then seq2 exceed, and rotate
-    seqs, is_prefill = scheduler.schedule()
+    output = scheduler.schedule()
+    seqs = output.scheduled_seqs if output.scheduled_seqs else []
+    is_prefill = output.decode_type == DecodeType.PREFILL
     seq1.append_token(100)  # simulate prefilling phase to generate one token
 
     assert seqs == [seq1]
     assert is_prefill
     assert scheduler.waiting == deque([seq0, seq2])
-    seqs, is_prefill = scheduler.schedule()
+    output = scheduler.schedule()
+    seqs = output.scheduled_seqs if output.scheduled_seqs else []
+    is_prefill = output.decode_type == DecodeType.PREFILL
     assert seqs == [seq1]
     assert not is_prefill
     assert scheduler.waiting == deque([seq2, seq0])

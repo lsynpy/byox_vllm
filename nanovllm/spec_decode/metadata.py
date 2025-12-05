@@ -24,7 +24,10 @@ class SpecDecodeMetadata:
     logits_indices: torch.Tensor
 
     def __post_init__(self):
-        self.max_spec_len = max(self.num_draft_tokens)
+        if self.num_draft_tokens:
+            self.max_spec_len = max(self.num_draft_tokens)
+        else:
+            self.max_spec_len = 0  # Default value when no draft tokens
 
     @classmethod
     def make_dummy(

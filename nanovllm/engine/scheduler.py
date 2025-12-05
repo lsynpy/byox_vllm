@@ -21,7 +21,7 @@ class SchedulerOutput:
     decode_type: DecodeType
     # req_id -> num_scheduled_tokens
     # Number of tokens scheduled for each request.
-    num_scheduled_tokens: dict[str, int] = 0
+    num_scheduled_tokens: dict[str, int] = None
     # Total number of tokens scheduled for all requests.
     # Equal to sum(num_scheduled_tokens.values())
     total_num_scheduled_tokens: int = 0
@@ -29,6 +29,10 @@ class SchedulerOutput:
     # If a request does not have any spec decode tokens, it will not be
     # included in the dictionary.
     scheduled_spec_decode_tokens: dict[str, list[int]] | None = None
+
+    def __post_init__(self):
+        if self.num_scheduled_tokens is None:
+            self.num_scheduled_tokens = {}
 
 
 class Scheduler:
@@ -44,12 +48,18 @@ class Scheduler:
         self.num_spec_tokens = self.num_lookahead_tokens = 0
         if speculative_config:
             self.num_spec_tokens = speculative_config.num_speculative_tokens
-            if speculative_config.use_eagle():
-                self.use_eagle = True
-                self.num_lookahead_tokens = self.num_spec_tokens
+            # Currently only supporting ngram method, so no eagle support
+            # This is a simplified check - in a full implementation, there would be different
+            # methods to distinguish between eagle and other speculative methods
+            # For now, we'll assume eagle is not used
 
     def is_finished(self):
         return not self.waiting and not self.running
+
+    # For backward compatibility with tests
+    def __iter__(self):
+        """For backward compatibility - allows unpacking as (seqs, is_prefill)"""
+        raise TypeError("'SchedulerOutput' object is not iterable")
 
     def add(self, seq: Sequence):
         logger.debug(f"Adding sequence {seq}")

@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from dataclasses import replace
 
 import numpy as np
 import torch
@@ -24,9 +23,6 @@ class RejectionSampler(nn.Module):
     def __init__(self, sampler: Sampler):
         super().__init__()
         self.sampler = sampler
-        logprobs_mode = self.sampler.logprobs_mode
-        self.is_processed_logprobs_mode = logprobs_mode.startswith("processed")
-        self.is_logits_logprobs_mode = logprobs_mode.endswith("logits")
 
     def forward(
         self,
@@ -48,18 +44,15 @@ class RejectionSampler(nn.Module):
         # won't affect the original logits tensor.
         assert logits is not None
         bonus_logits = logits[bonus_logits_indices]
-        bonus_sampler_output = self.sampler(
-            logits=bonus_logits,
-            sampling_metadata=replace(
-                sampling_metadata,
-                max_num_logprobs=-1,
-            ),
+        # Extract temperatures for bonus logits - bonus_logits_indices maps to batch indices
+        bonus_temperatures = sampling_metadata.temperature[bonus_logits_indices]
+
+        bonus_token_ids = self.sampler(
+            bonus_logits,
+            bonus_temperatures,
+            sampling_metadata,
             predict_bonus_token=True,
-            # Override the logprobs mode to return logits because they are
-            # needed later to compute the accepted token logprobs.
-            logprobs_mode_override="processed_logits" if self.is_processed_logprobs_mode else "raw_logits",
         )
-        bonus_token_ids = bonus_sampler_output.sampled_token_ids
 
         # Just like `bonus_logits`, `target_logits` is a new tensor with
         # separate storage from the original `logits` tensor. Therefore,

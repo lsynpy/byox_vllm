@@ -1,17 +1,12 @@
-from typing import Literal
-
 import torch
 from torch import nn
 
 from nanovllm.sample.metadata import SamplingMetadata
 
-LogprobsMode = Literal["raw_logits", "raw_logprobs", "processed_logits", "processed_logprobs"]
-
 
 class Sampler(nn.Module):
-    def __init__(self, logprobs_mode: LogprobsMode = "raw_logprobs"):
+    def __init__(self):
         super().__init__()
-        self.logprobs_mode = logprobs_mode
 
     def _greedy_sample(self, logits: torch.Tensor):
         return torch.argmax(logits, dim=-1)
@@ -28,7 +23,6 @@ class Sampler(nn.Module):
         temperatures: torch.Tensor,
         sampling_metadata: SamplingMetadata = None,
         predict_bonus_token: bool = False,
-        logprobs_mode_override: LogprobsMode | None = None,
     ):
         temp_zero_mask = temperatures == 0
 
