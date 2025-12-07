@@ -4,7 +4,9 @@ import numpy as np
 import xxhash
 
 from nanovllm.engine.sequence import Sequence
-from nanovllm.utils.logging import logger
+from nanovllm.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Block:
@@ -39,7 +41,7 @@ class BlockManager:
         return len(self.free_block_ids) >= seq.num_blocks
 
     def allocate(self, seq: Sequence):
-        logger.debug(f"allocating blocks for {seq} ...")
+        logger.debug("allocating blocks for %s ...", seq)
         assert not seq.block_table
         h = -1
         cache_miss = False
@@ -53,25 +55,25 @@ class BlockManager:
                 block_id = self.free_block_ids[0]
                 block = self.blocks[block_id]
                 self._allocate_block(block)
-                logger.debug(f"cache miss, allocated {block}")
+                logger.debug("cache miss, allocated %s", block)
             else:
                 seq.num_cached_tokens += self.block_size
                 block = self.blocks[block_id]
                 if block_id in self.used_block_ids:
                     block.ref_count += 1
-                    logger.debug(f"cache hit, reused {block}")
+                    logger.debug("cache hit, reused %s", block)
                 else:
                     # When block deallocated, its hash and token_ids are kept,
                     # so there is chance to hit while block is free.
                     self._allocate_block(block)
-                    logger.debug(f"cache hit but {block} is deallocated, re-allocated it")
+                    logger.debug("cache hit but %s is deallocated, re-allocated it", block)
             if h != -1:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id
             seq.block_table.append(block_id)
 
     def deallocate(self, seq: Sequence):
-        logger.debug(f"deallocating blocks for {seq} ...")
+        logger.debug("deallocating blocks for %s ...", seq)
         for block_id in reversed(seq.block_table):
             block = self.blocks[block_id]
             block.ref_count -= 1
@@ -93,7 +95,7 @@ class BlockManager:
             block_id = self.free_block_ids[0]
             block = self.blocks[block_id]
             self._allocate_block(block)
-            logger.debug(f"allocated new {block} for {seq}")
+            logger.debug("allocated new %s for %s", block, seq)
             block_table.append(block_id)
         elif len(seq) % self.block_size == 0:  # seq's last block is now filled, need to update its hash
             assert last_block.hash == -1
@@ -101,7 +103,7 @@ class BlockManager:
             prefix = self.blocks[block_table[-2]].hash if len(block_table) > 1 else -1
             h = self._compute_hash(token_ids, prefix)
             last_block.update(h, token_ids)
-            logger.debug(f"updated hash of {last_block} for {seq}")
+            logger.debug("updated hash of %s for %s", last_block, seq)
             self.hash_to_block_id[h] = last_block.block_id
         else:
             assert last_block.hash == -1  # last block is not filled yet, no hash needed

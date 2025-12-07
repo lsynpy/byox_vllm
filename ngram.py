@@ -1,8 +1,10 @@
 import logging
 import os
 
-from nanovllm import LLM, SamplingParams, set_global_log_level
-from nanovllm.utils.logging import logger
+from nanovllm import LLM, SamplingParams
+from nanovllm.utils.logging import get_logger, set_default_log_level
+
+logger = get_logger(__name__)
 
 NUM_SPEC_TOKENS = 2
 PROMPT_LOOKUP_MAX = 5
@@ -10,11 +12,12 @@ PROMPT_LOOKUP_MIN = 2
 
 
 def main():
-    set_global_log_level(logging.DEBUG)
+    set_default_log_level(logging.DEBUG)
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
 
     prompts = [
-        "List the first ten prime numbers:",
+        # "List the first ten prime numbers:",
+        "List the 10 numbers only contains digit 1:",
     ]
     speculative_config = {
         "method": "ngram",
@@ -26,15 +29,15 @@ def main():
 
     llm = LLM(
         path,
-        gpu_memory_utilization=0.4,
+        gpu_memory_utilization=0.3,
         speculative_config=speculative_config,
         enforce_eager=True,
     )
     outputs = llm.generate(prompts, sampling_params, use_tqdm=False)
 
     for prompt, output in zip(prompts, outputs):
-        logger.info(f"Prompt: {prompt!r}")
-        logger.info(f"Completion: {output['text']}")
+        logger.info("Prompt: %r", prompt)
+        logger.info("Completion: %s", output["text"])
 
 
 if __name__ == "__main__":

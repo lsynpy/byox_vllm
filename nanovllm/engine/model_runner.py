@@ -1,3 +1,4 @@
+import logging
 import pickle
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.synchronize import Event
@@ -16,9 +17,11 @@ from nanovllm.sample.rejection_sampler import RejectionSampler
 from nanovllm.sample.sampler import Sampler
 from nanovllm.spec_decode.metadata import SpecDecodeMetadata
 from nanovllm.spec_decode.ngram_proposer import NgramProposer
-from nanovllm.utils.context import get_context, reset_context, set_context
+from nanovllm.utils.context import reset_context, set_context
 from nanovllm.utils.loader import load_model
-from nanovllm.utils.logging import logger
+from nanovllm.utils.logging import get_logger
+
+logger = get_logger(__name__, logging.DEBUG)
 
 
 class ModelRunner:
@@ -91,7 +94,7 @@ class ModelRunner:
     def run(self, scheduler_output: SchedulerOutput) -> list[int]:
         seqs = scheduler_output.scheduled_seqs
         decode_type = scheduler_output.decode_type
-        logger.debug(f"Running model in {decode_type} phase: {seqs}")
+        logger.debug("Running model in %s phase: %s", decode_type, seqs)
 
         # Prepare inputs and metadata
         inputs = self._prepare_inputs(scheduler_output)
@@ -101,7 +104,7 @@ class ModelRunner:
             input_ids, positions, spec_decode_metadata = inputs
 
         # Execute model and compute logits
-        logits = self._execute_model(input_ids, positions, decode_type)
+        logits = self._execute_model(input_ids, positions)
 
         # Create basic sampling metadata
         batch_size = input_ids.size(0) if "input_ids" in locals() else len(seqs)
@@ -119,9 +122,12 @@ class ModelRunner:
             output_token_ids=[[] for _ in range(batch_size)],
         )
 
-        token_ids = self._sample_tokens(logits, sampling_metadata, spec_decode_metadata, seqs)
+        computed_token_ids, sampled_token_ids = self._sample_tokens(
+            logits, sampling_metadata, spec_decode_metadata
+        )
+        logger.debug("computed token ids: %s, sampled token ids: %s", computed_token_ids, sampled_token_ids)
         reset_context()
-        return token_ids
+        return computed_token_ids, sampled_token_ids
 
     def exit(self):
         if self.world_size > 1:
@@ -129,8 +135,8 @@ class ModelRunner:
             dist.barrier()
             if self.rank == 0:
                 self.shm.unlink()
-        if not self.enforce_eager:
-            del self.graphs, self.graph_pool
+        # if not self.enforce_eager:
+        #     del self.graphs, self.graph_pool
         torch.cuda.synchronize()
         dist.destroy_process_group()
 
@@ -200,10 +206,11 @@ class ModelRunner:
             head_dim,
         )
         logger.info(
-            f"allocated {self.kv_cache.nbytes / (1024**3):.2f} GB, "
-            f"{config.num_kvcache_blocks} blocks, "
-            f"{self.kv_cache.nbytes / (1024**2) / config.num_kvcache_blocks:.2f} MB per block,"
-            f"block size: {self.block_size}"
+            "allocated %.2f GB, %d blocks, %.2f MB per block, block size: %d",
+            self.kv_cache.nbytes / (1024**3),
+            config.num_kvcache_blocks,
+            self.kv_cache.nbytes / (1024**2) / config.num_kvcache_blocks,
+            self.block_size,
         )
         layer_id = 0
         for module in self.model.modules():
@@ -331,43 +338,25 @@ class ModelRunner:
         return temperatures
 
     @torch.inference_mode()
-    def _execute_model(self, input_ids: torch.Tensor, positions: torch.Tensor, decode_type: DecodeType):
-        if (
-            self.enforce_eager
-            or input_ids.size(0) > self.config.max_cudagraph_batch_size
-            or decode_type == DecodeType.PREFILL
-            or decode_type == DecodeType.SD
-        ):
-            return self.model.compute_logits(self.model(input_ids, positions))
-        else:
-            bs = input_ids.size(0)
-            context = get_context()
-            # expand batch to nearest graph batch, there will be empty batches
-            graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]
-            graph_vars = self.graph_vars
-            graph_vars["input_ids"][:bs] = input_ids
-            graph_vars["positions"][:bs] = positions
-            graph_vars["slot_mapping"].fill_(-1)
-            graph_vars["slot_mapping"][:bs] = context.slot_mapping
-            graph_vars["context_lens"].zero_()
-            graph_vars["context_lens"][:bs] = context.context_lens
-            graph_vars["block_tables"][:bs, : context.block_tables.size(1)] = context.block_tables
-            graph.replay()
-            return self.model.compute_logits(graph_vars["outputs"][:bs])
+    def _execute_model(self, input_ids: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
+        return self.model.compute_logits(self.model(input_ids, positions))
 
     @torch.inference_mode()
-    def _sample_tokens(self, logits, sampling_metadata, spec_decode_metadata, seqs=None):
+    def _sample_tokens(
+        self,
+        logits: torch.Tensor,
+        sampling_metadata: SamplingMetadata,
+        spec_decode_metadata: SpecDecodeMetadata,
+    ) -> tuple[list[int], list[int]]:
+        computed_token_ids = self.sampler(
+            logits,
+            sampling_metadata.temperature
+            if sampling_metadata and sampling_metadata.temperature is not None
+            else torch.ones(logits.size(0), device=logits.device, dtype=torch.float32),
+            sampling_metadata=sampling_metadata,
+        )
         if spec_decode_metadata is None:
-            # Update output token ids with tokens sampled in last step
-            # if async scheduling and required by current sampling params.
-            # self.input_batch.update_async_output_token_ids()
-            return self.sampler(
-                logits,
-                sampling_metadata.temperature
-                if sampling_metadata and sampling_metadata.temperature is not None
-                else torch.ones(logits.size(0), device=logits.device, dtype=torch.float32),
-                sampling_metadata=sampling_metadata,
-            )
+            return computed_token_ids, []
 
         sampled_token_ids = self.rejection_sampler(
             spec_decode_metadata,
@@ -375,51 +364,12 @@ class ModelRunner:
             logits,
             sampling_metadata,
         )
-        # self._update_states_after_model_execute(sampled_token_ids)
-        return sampled_token_ids
+        return computed_token_ids, sampled_token_ids
 
     @torch.inference_mode()
     def _capture_cudagraph(self):
-        logger.info("Capturing CUDA graphs for decoding...")
-        config = self.config
-        hf_config = config.hf_config
-        max_bs = self.config.max_cudagraph_batch_size
-        max_num_blocks = (config.max_model_len + self.block_size - 1) // self.block_size
-        input_ids = torch.zeros(max_bs, dtype=torch.int64)
-        positions = torch.zeros(max_bs, dtype=torch.int64)
-        slot_mapping = torch.zeros(max_bs, dtype=torch.int32)
-        context_lens = torch.zeros(max_bs, dtype=torch.int32)
-        block_tables = torch.zeros(max_bs, max_num_blocks, dtype=torch.int32)
-        outputs = torch.zeros(max_bs, hf_config.hidden_size)
-        self.graph_bs = [1, 2, 4, 8] + list(range(16, max_bs + 1, 16))
-        self.graphs = {}
-        self.graph_pool = None
-
-        for bs in reversed(self.graph_bs):
-            graph = torch.cuda.CUDAGraph()
-            set_context(
-                is_prefill=False,
-                slot_mapping=slot_mapping[:bs],
-                context_lens=context_lens[:bs],
-                block_tables=block_tables[:bs],
-            )
-            outputs[:bs] = self.model(input_ids[:bs], positions[:bs])  # warmup
-            with torch.cuda.graph(graph, self.graph_pool):
-                outputs[:bs] = self.model(input_ids[:bs], positions[:bs])  # capture
-            if self.graph_pool is None:
-                self.graph_pool = graph.pool()
-            self.graphs[bs] = graph
-            torch.cuda.synchronize()
-            reset_context()
-
-        self.graph_vars = dict(
-            input_ids=input_ids,
-            positions=positions,
-            slot_mapping=slot_mapping,
-            context_lens=context_lens,
-            block_tables=block_tables,
-            outputs=outputs,
-        )
+        # CUDA graph support has been disabled - using eager execution only
+        pass
 
     def _get_cumsum_and_arange(
         self,

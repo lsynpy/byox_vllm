@@ -40,12 +40,20 @@ class Sequence:
     def __repr__(self):
         return f"seq-{self.seq_id}"
 
+    def token_detail(self, tokenizer):
+        token_details = []
+        for token_id in self.token_ids:
+            token_str = tokenizer.decode([token_id])
+            token_details.append(f"{token_id}<{token_str}>")
+
+        return token_details
+
     @property
     def is_finished(self):
         return self.status == SequenceStatus.FINISHED
 
     @property
-    def num_completion_tokens(self):
+    def num_comupted_tokens(self):
         return self.num_tokens - self.num_prompt_tokens
 
     @property
@@ -53,7 +61,7 @@ class Sequence:
         return self.token_ids[: self.num_prompt_tokens]
 
     @property
-    def completion_token_ids(self):
+    def computed_token_ids(self):
         return self.token_ids[self.num_prompt_tokens :]
 
     @property

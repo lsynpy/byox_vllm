@@ -11,7 +11,9 @@ from nanovllm.engine.model_runner import ModelRunner
 from nanovllm.engine.scheduler import Scheduler
 from nanovllm.engine.sequence import Sequence
 from nanovllm.sample.sampling_params import SamplingParams
-from nanovllm.utils.logging import logger
+from nanovllm.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class LLMEngine:
@@ -85,7 +87,7 @@ class LLMEngine:
         if isinstance(prompt, str):
             prompt = self.tokenizer.encode(prompt)
         seq = Sequence(prompt, self.scheduler.block_manager.block_size, sampling_params)
-        logger.debug(f"Add request: seq_id={seq.seq_id} <{seq.token_ids}>")
+        logger.debug("Add request: seq_id=%s %s", seq.seq_id, seq.token_detail(self.tokenizer))
         self.scheduler.add(seq)
 
     def _step(self):
@@ -95,9 +97,9 @@ class LLMEngine:
             outputs = []
             num_tokens = 0
             return outputs, num_tokens
-        token_ids = self.model_runner.call("run", scheduler_output)
-        self.scheduler.postprocess(seqs, token_ids)
-        outputs = [(seq.seq_id, seq.completion_token_ids) for seq in seqs if seq.is_finished]
+        computed_token_ids, sampled_token_ids = self.model_runner.call("run", scheduler_output)
+        self.scheduler.postprocess(seqs, computed_token_ids, sampled_token_ids)
+        outputs = [(seq.seq_id, seq.computed_token_ids) for seq in seqs if seq.is_finished]
         return outputs, scheduler_output.total_num_scheduled_tokens
 
     def _is_finished(self):

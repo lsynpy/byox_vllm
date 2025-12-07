@@ -5,7 +5,9 @@ from enum import Enum, auto
 from nanovllm.config import Config
 from nanovllm.engine.block_manager import BlockManager
 from nanovllm.engine.sequence import Sequence, SequenceStatus
-from nanovllm.utils.logging import logger
+from nanovllm.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class DecodeType(Enum):
@@ -43,15 +45,7 @@ class Scheduler:
         self.block_manager = BlockManager(config.num_kvcache_blocks, config.kvcache_block_size)
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
-        speculative_config = config.speculative_config
-        self.use_eagle = False
-        self.num_spec_tokens = self.num_lookahead_tokens = 0
-        if speculative_config:
-            self.num_spec_tokens = speculative_config.num_speculative_tokens
-            # Currently only supporting ngram method, so no eagle support
-            # This is a simplified check - in a full implementation, there would be different
-            # methods to distinguish between eagle and other speculative methods
-            # For now, we'll assume eagle is not used
+        self.speculative_config = config.speculative_config
 
     def is_finished(self):
         return not self.waiting and not self.running
@@ -62,52 +56,52 @@ class Scheduler:
         raise TypeError("'SchedulerOutput' object is not iterable")
 
     def add(self, seq: Sequence):
-        logger.debug(f"Adding sequence {seq}")
+        logger.debug("Adding sequence %s", seq)
         self.waiting.append(seq)
-        logger.debug(f"append {seq} to waiting: {self.waiting}")
+        logger.debug("append %s to waiting: %s", seq, self.waiting)
 
     def schedule(self) -> SchedulerOutput:
-        logger.debug("Scheduling start ...")
-        # prefill and spec_decode
+        logger.info("Scheduling start ...")
+        # prefill first
         scheduled_seqs = []
         num_seqs = 0
         num_batched_tokens = 0
         while self.waiting and num_seqs < self.max_num_seqs:
             seq = self.waiting[0]
-            logger.debug(f"select {seq} from waiting")
+            logger.debug("select %s from waiting", seq)
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens:
-                logger.debug(f"Max batched tokens reached, cannot schedule {seq}")
+                logger.debug("Max batched tokens reached, cannot schedule %s", seq)
                 self.waiting.rotate(-1)
-                logger.debug(f"rotate waiting with -1: {self.waiting}")
+                logger.debug("rotate waiting with -1: %s", self.waiting)
                 break
             if not self.block_manager.can_allocate(seq):
-                logger.debug(f"Free blocks not enough, cannot schedule {seq}")
+                logger.debug("Free blocks not enough, cannot schedule %s", seq)
                 break
             num_seqs += 1
             self.block_manager.allocate(seq)
             num_batched_tokens += len(seq) - seq.num_cached_tokens
             seq.status = SequenceStatus.RUNNING
             self.waiting.popleft()
-            logger.debug(f"popleft from waiting: {self.waiting}")
+            logger.debug("popleft from waiting: %s", self.waiting)
             self.running.append(seq)
-            logger.debug(f"append {seq} to running: {self.running}")
+            logger.debug("append %s to running: %s", seq, self.running)
             scheduled_seqs.append(seq)
         if scheduled_seqs:
-            if self.num_spec_tokens:
-                logger.debug(f"[spec_decode] Scheduled {scheduled_seqs} done")
+            if self.speculative_config:
+                logger.debug("[spec_decode] Scheduled %s done", scheduled_seqs)
                 return SchedulerOutput(scheduled_seqs, DecodeType.SD)
-            logger.debug(f"[prefill] Scheduled {scheduled_seqs} done")
+            logger.debug("[prefill] Scheduled %s done", scheduled_seqs)
             return SchedulerOutput(scheduled_seqs, DecodeType.PREFILL)
 
         # auto-regression and spec_decode continue
         while self.running and num_seqs < self.max_num_seqs:
             seq = self.running.popleft()
-            logger.debug(f"select {seq} from running")
-            logger.debug(f"popleft {seq} from running: {self.running}")
+            logger.debug("select %s from running", seq)
+            logger.debug("popleft %s from running: %s", seq, self.running)
             while not self.block_manager.can_append(seq):
                 if self.running:
                     tmp_seq = self.running.pop()
-                    logger.debug(f"pop {tmp_seq} from running: {self.running}")
+                    logger.debug("pop %s from running: %s", tmp_seq, self.running)
                     self._preempt(tmp_seq)
                 else:
                     self._preempt(seq)
@@ -120,28 +114,30 @@ class Scheduler:
         if scheduled_seqs:
             rev_seqs = list(reversed(scheduled_seqs))
             self.running.extendleft(rev_seqs)
-            logger.debug(f"extendleft {rev_seqs} to running: {self.running}")
-            if self.num_spec_tokens:
-                logger.debug(f"[spec_decode] scheduled {scheduled_seqs} done")
+            logger.debug("extendleft %s to running: %s", rev_seqs, self.running)
+            if self.speculative_config:
+                logger.info("[spec_decode] scheduled %s done", scheduled_seqs)
                 return SchedulerOutput(scheduled_seqs, DecodeType.SD)
-            logger.debug(f"[AR] scheduled {scheduled_seqs} done")
+            logger.info("[AR] scheduled %s done", scheduled_seqs)
             return SchedulerOutput(scheduled_seqs, DecodeType.AR)
         else:
             logger.debug("No sequences scheduled")
             return SchedulerOutput(None, DecodeType.EMPTY)
 
-    def postprocess(self, seqs: list[Sequence], token_ids: list[int]) -> list[bool]:
-        for seq, token_id in zip(seqs, token_ids):
+    def postprocess(
+        self, seqs: list[Sequence], computed_token_ids: list[int], sampled_token_ids: list[int]
+    ) -> list[bool]:
+        for seq, token_id in zip(seqs, computed_token_ids):
             seq.append_token(token_id)
-            if (not seq.ignore_eos and token_id == self.eos) or seq.num_completion_tokens == seq.max_tokens:
+            if (not seq.ignore_eos and token_id == self.eos) or seq.num_comupted_tokens == seq.max_tokens:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)
-                logger.debug(f"remove {seq} from running: {self.running}")
+                logger.debug("remove %s from running: %s", seq, self.running)
 
     def _preempt(self, seq: Sequence):
-        logger.debug(f"Preempting {seq}")
+        logger.debug("Preempting %s", seq)
         seq.status = SequenceStatus.WAITING
         self.block_manager.deallocate(seq)
         self.waiting.appendleft(seq)
-        logger.debug(f"appendleft {seq} to waiting: {self.waiting}")
+        logger.debug("appendleft %s to waiting: %s", seq, self.waiting)

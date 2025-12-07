@@ -10,7 +10,9 @@ from vllm.triton_utils import tl, triton
 from nanovllm.sample.metadata import SamplingMetadata
 from nanovllm.sample.sampler import Sampler
 from nanovllm.spec_decode.metadata import SpecDecodeMetadata
-from nanovllm.utils.logging import logger
+from nanovllm.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 PLACEHOLDER_TOKEN_ID: tl.constexpr = -1
 GREEDY_TEMPERATURE: tl.constexpr = 0
@@ -32,7 +34,7 @@ class RejectionSampler(nn.Module):
         # [num_tokens + batch_size, vocab_size]
         logits: torch.Tensor,
         sampling_metadata: SamplingMetadata,
-    ):
+    ) -> list[int]:
         assert metadata.max_spec_len <= MAX_SPEC_LEN
 
         bonus_logits_indices = metadata.bonus_logits_indices
@@ -77,7 +79,7 @@ class RejectionSampler(nn.Module):
             metadata.draft_token_ids.tolist(),
             output_token_ids.tolist(),
         )
-        return output_token_ids
+        return output_token_ids.tolist()
 
     @staticmethod
     def parse_output(

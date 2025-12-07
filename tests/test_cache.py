@@ -22,7 +22,7 @@ def test_prefill():
     assert seq0.block_table == [0, 1, 2, 3]
     assert seq0.num_cached_tokens == 0
     assert seq0.num_cached_blocks == 0
-    assert seq0.num_completion_tokens == 0
+    assert seq0.num_comupted_tokens == 0
 
     assert len(manager.used_block_ids) == 4  # 3 common + 1 unique
     assert manager.used_block_ids == {0, 1, 2, 3}
@@ -53,7 +53,7 @@ def test_prefill():
     assert seq1.block_table == [0, 1, 2, 4]
     assert seq1.num_cached_tokens == 16 * 3  # 3 full blocks cached
     assert seq1.num_cached_blocks == 3
-    assert seq1.num_completion_tokens == 0
+    assert seq1.num_comupted_tokens == 0
 
     # At this point, we should have 5 free blocks left.
     assert len(manager.used_block_ids) == 5  # 3 common + 2 unique
@@ -84,7 +84,7 @@ def test_prefill():
     assert seq2.block_table == [0, 1, 2, 5]
     assert seq2.num_cached_tokens == 16 * 3  # 3 full blocks cached
     assert seq2.num_cached_blocks == 3
-    assert seq2.num_completion_tokens == 0
+    assert seq2.num_comupted_tokens == 0
 
     assert len(manager.used_block_ids) == 4  # 3 common + 1 unique
     assert manager.used_block_ids == {0, 1, 2, 5}
@@ -102,7 +102,7 @@ def test_prefill():
     assert seq3.block_table == [6, 7, 8, 9, 3, 4, 5, 2, 1, 0]
     assert seq3.num_cached_tokens == 0
     assert seq3.num_cached_blocks == 0
-    assert seq3.num_completion_tokens == 0
+    assert seq3.num_comupted_tokens == 0
 
     assert len(manager.used_block_ids) == 10
     assert manager.used_block_ids == {6, 7, 8, 9, 3, 4, 5, 2, 1, 0}
