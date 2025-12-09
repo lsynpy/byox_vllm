@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+import logging
 import os
 
 import numpy as np
@@ -8,7 +9,7 @@ from numba import get_num_threads, jit, njit, prange, set_num_threads
 from nanovllm.config import Config
 from nanovllm.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, logging.INFO)
 
 
 class NgramProposer:

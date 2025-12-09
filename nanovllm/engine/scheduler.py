@@ -1,5 +1,4 @@
 from collections import deque
-from dataclasses import dataclass
 from enum import Enum, auto
 
 from nanovllm.config import Config
@@ -13,28 +12,8 @@ logger = get_logger(__name__)
 class DecodeType(Enum):
     EMPTY = auto()
     PREFILL = auto()
-    AR = auto()  # Auto-regression
+    DECODE = auto()  # Auto-regression
     SD = auto()  # Speculative decoding
-
-
-@dataclass
-class SchedulerOutput:
-    scheduled_seqs: list[Sequence] | None
-    decode_type: DecodeType
-    # req_id -> num_scheduled_tokens
-    # Number of tokens scheduled for each request.
-    num_scheduled_tokens: dict[str, int] = None
-    # Total number of tokens scheduled for all requests.
-    # Equal to sum(num_scheduled_tokens.values())
-    total_num_scheduled_tokens: int = 0
-    # req_id -> spec_token_ids
-    # If a request does not have any spec decode tokens, it will not be
-    # included in the dictionary.
-    scheduled_spec_decode_tokens: dict[str, list[int]] | None = None
-
-    def __post_init__(self):
-        if self.num_scheduled_tokens is None:
-            self.num_scheduled_tokens = {}
 
 
 class Scheduler:
@@ -45,22 +24,17 @@ class Scheduler:
         self.block_manager = BlockManager(config.num_kvcache_blocks, config.kvcache_block_size)
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
-        self.speculative_config = config.speculative_config
+        # self.speculative_config = config.speculative_config
 
     def is_finished(self):
         return not self.waiting and not self.running
-
-    # For backward compatibility with tests
-    def __iter__(self):
-        """For backward compatibility - allows unpacking as (seqs, is_prefill)"""
-        raise TypeError("'SchedulerOutput' object is not iterable")
 
     def add(self, seq: Sequence):
         logger.debug("Adding sequence %s", seq)
         self.waiting.append(seq)
         logger.debug("append %s to waiting: %s", seq, self.waiting)
 
-    def schedule(self) -> SchedulerOutput:
+    def schedule(self) -> tuple[list[Sequence | None], DecodeType]:
         logger.info("Scheduling start ...")
         # prefill first
         scheduled_seqs = []
@@ -87,13 +61,10 @@ class Scheduler:
             logger.debug("append %s to running: %s", seq, self.running)
             scheduled_seqs.append(seq)
         if scheduled_seqs:
-            if self.speculative_config:
-                logger.debug("[spec_decode] Scheduled %s done", scheduled_seqs)
-                return SchedulerOutput(scheduled_seqs, DecodeType.SD)
-            logger.debug("[prefill] Scheduled %s done", scheduled_seqs)
-            return SchedulerOutput(scheduled_seqs, DecodeType.PREFILL)
+            logger.debug("%s Scheduled %s done", DecodeType.PREFILL, scheduled_seqs)
+            return scheduled_seqs, DecodeType.PREFILL
 
-        # auto-regression and spec_decode continue
+        # decode
         while self.running and num_seqs < self.max_num_seqs:
             seq = self.running.popleft()
             logger.debug("select %s from running", seq)
@@ -115,21 +86,22 @@ class Scheduler:
             rev_seqs = list(reversed(scheduled_seqs))
             self.running.extendleft(rev_seqs)
             logger.debug("extendleft %s to running: %s", rev_seqs, self.running)
-            if self.speculative_config:
-                logger.info("[spec_decode] scheduled %s done", scheduled_seqs)
-                return SchedulerOutput(scheduled_seqs, DecodeType.SD)
-            logger.info("[AR] scheduled %s done", scheduled_seqs)
-            return SchedulerOutput(scheduled_seqs, DecodeType.AR)
+            logger.info("%s scheduled %s done", DecodeType.DECODE, scheduled_seqs)
+            return scheduled_seqs, DecodeType.DECODE
         else:
             logger.debug("No sequences scheduled")
-            return SchedulerOutput(None, DecodeType.EMPTY)
+            return [], DecodeType.EMPTY
 
     def postprocess(
-        self, seqs: list[Sequence], computed_token_ids: list[int], sampled_token_ids: list[int]
+        self, seqs: list[Sequence], sampled_token_ids: list[list[int]], draft_token_ids: list[list[int]]
     ) -> list[bool]:
-        for seq, token_id in zip(seqs, computed_token_ids):
-            seq.append_token(token_id)
-            if (not seq.ignore_eos and token_id == self.eos) or seq.num_comupted_tokens == seq.max_tokens:
+        for seq, token_ids, draft_ids in zip(seqs, sampled_token_ids, draft_token_ids):
+            seq.append_tokens(token_ids)
+            logger.info("appended tokens %s to %s", token_ids, seq)
+            seq.set_draft_tokens(draft_ids)
+            seq.prepare_input_ids_and_positions(token_ids, draft_ids)
+            # FIXME: may not generate exactly max_tokens tokens
+            if (not seq.ignore_eos and token_ids == self.eos) or seq.num_comupted_tokens >= seq.max_tokens:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)

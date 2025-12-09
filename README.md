@@ -29,6 +29,19 @@ _model_forward() on:
   input_ids: [852, 220, 16, 15, 5109, 1172, 5610, 15723, 220, 16, 25],
   positions: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
+call flash_attn with params:
+  q.shape: torch.Size([11, 16, 128]),
+  k.shape: torch.Size([210, 16, 8, 128]),
+  v.shape: torch.Size([210, 16, 8, 128]),
+  number_actual_tokens: 11,
+  cu_seqlens_q: tensor([ 0, 11], device='cuda:0', dtype=torch.int32),
+  max_seqlen_q: 11,
+  seqused_k: tensor([11], device='cuda:0', dtype=torch.int32),
+  max_seqlen_k: 11,
+  block_table: tensor([[1, 0]], device='cuda:0', dtype=torch.int32)
+
+flash_attn out: torch.Size([11, 16, 128])
+
 _model_forward() get:
   hidden_states: torch.Size([11, 1024]),
 
@@ -57,6 +70,19 @@ _model_forward() on:
   input_ids: [220, 220, 16],  # pad to 3 for cuda graph batch size, 220 is the new generated token, 220, 16 is just stale data in self.input_ids.gpu
   positions: [11, 1, 2] # same as input_ids, self.positions.gpu = [11, 1, 2, ...], 11 is the new token position, 1, 2 is stale
 
+call flash_attn with params:
+  q.shape: torch.Size([1, 16, 128]),
+  k.shape: torch.Size([210, 16, 8, 128]),
+  v.shape: torch.Size([210, 16, 8, 128]),
+  number_actual_tokens: 1,
+  cu_seqlens_q: tensor([0, 1], device='cuda:0', dtype=torch.int32),
+  max_seqlen_q: 1,
+  seqused_k: tensor([12], device='cuda:0', dtype=torch.int32),
+  max_seqlen_k: 12,
+  block_table: tensor([[1, 0]], device='cuda:0', dtype=torch.int32)
+
+flash_attn out: torch.Size([1, 16, 128])
+
 _model_forward() get:
   hidden_states: torch.Size([3, 1024]),
 
@@ -84,6 +110,19 @@ _prepare_input() for SD get:
 _model_forward() on:
   input_ids: [16, 15, 5109],
   positions: [12, 13, 14]
+
+call flash_attn with params:
+  q.shape: torch.Size([3, 16, 128]),
+  k.shape: torch.Size([210, 16, 8, 128]),
+  v.shape: torch.Size([210, 16, 8, 128]),
+  number_actual_tokens: 3,
+  cu_seqlens_q: tensor([0, 3], device='cuda:0', dtype=torch.int32),
+  max_seqlen_q: 3,
+  seqused_k: tensor([15], device='cuda:0', dtype=torch.int32),
+  max_seqlen_k: 15,
+  block_table: tensor([[1, 0]], device='cuda:0', dtype=torch.int32)
+
+flash_attn out: torch.Size([3, 16, 128])
 
 _model_forward() get:
   hidden_states: torch.Size([3, 1024])
@@ -142,6 +181,19 @@ _model_forward() on:
   input_ids: [11, 220, 16],
   positions: [17, 18, 19]
 
+call flash_attn with params:
+  q.shape: torch.Size([3, 16, 128]),
+  k.shape: torch.Size([210, 16, 8, 128]),
+  v.shape: torch.Size([210, 16, 8, 128]),
+  number_actual_tokens: 3,
+  cu_seqlens_q: tensor([0, 3], device='cuda:0', dtype=torch.int32),
+  max_seqlen_q: 3,
+  seqused_k: tensor([20], device='cuda:0', dtype=torch.int32),
+  max_seqlen_k: 20,
+  block_table: tensor([[1, 2]], device='cuda:0', dtype=torch.int32)
+
+flash_attn out: torch.Size([3, 16, 128])
+
 _model_forward() get:
   hidden_states: torch.Size([3, 1024])
 
@@ -151,7 +203,7 @@ use logits_indices get:
 rejection sampling:
   draft_token_ids: [220, 16],
   output_token_ids: [[220, 16, 16]]
-token_ids_cpu: [[852, 220, 16, 15, 5109, 1172, 5610, 15723, 220, 16, 25, 220, 16, 11, 220, 16, 16, 11, 220, 16, 16]]
+token_ids_cpu: [[852, 220, 16, 15, 5109, 1172, 5610, 15723, 220, 16, 25, 220, 16, 11, 220, 16, 16, 11, 220, 16, 16, 16, 220]]
 
 proposed draft_token_ids: [[11, 220]]
 appended new tokens to req-0, tokens: [220, 16, 16]
@@ -280,3 +332,52 @@ number of accepted tokens: 8
 mean acceptance length: `8 / 7` + 1 = 2.14
 acceptance at token 0: `4 / 7` = 0.57
 acceptance at token 1: `4 / 7` = 0.57
+
+## Nano-vLLM context
+
+```py
+--- 1. prefill ---
+
+Context(
+  is_prefill=True,
+  max_seqlen_q=11,
+  max_seqlen_k=11,
+  cu_seqlens_q=[0, 11],
+  cu_seqlens_k=[0, 11],
+  slot_mapping=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  context_lens=None,
+  block_tables=None)
+
+call flash_attn prefill:
+  q shape: torch.Size([11, 16, 128]),
+  k shape: torch.Size([11, 8, 128]),
+  v shape: torch.Size([11, 8, 128]),
+  max_seqlen_q: 11,
+  cu_seqlens_q: [0, 11],
+  max_seqlen_k: 11,
+  cu_seqlens_k: [0, 11],
+  block_tables: None
+
+flash_attn out: torch.Size([11, 16, 128])
+
+--- 1. decode ---
+Context(
+  is_prefill=False,
+  max_seqlen_q=0,
+  max_seqlen_k=0,
+  cu_seqlens_q=None,
+  cu_seqlens_k=None,
+  slot_mapping=[11],
+  context_lens=[12],
+  block_tables=[[0]])
+
+call flash_attn decode:
+  q shape: torch.Size([1, 1, 16, 128]),
+  k shape: torch.Size([26, 256, 8, 128]),
+  v shape: torch.Size([26, 256, 8, 128]),
+  cache_seqlens: [12],
+  block_table: [[0]],
+
+flash_attn out: torch.Size([1, 1, 16, 128])
+
+```

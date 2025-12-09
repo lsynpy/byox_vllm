@@ -30,6 +30,8 @@ class Sequence:
         self.max_tokens = sampling_params.max_tokens
         self.ignore_eos = sampling_params.ignore_eos
         self.block_size = block_size
+        self.input_ids: list[int] = self.token_ids
+        self.positions = range(len(token_ids))
 
     def __len__(self):
         return self.num_tokens
@@ -38,7 +40,10 @@ class Sequence:
         return self.token_ids[key]
 
     def __repr__(self):
-        return f"seq-{self.seq_id}"
+        return (
+            f"<seq-{self.seq_id}:token_ids={self.token_ids},"
+            f"spec_token_ids={self.spec_token_ids},num_tokens={self.num_tokens}>"
+        )
 
     def token_detail(self, tokenizer):
         token_details = []
@@ -80,7 +85,20 @@ class Sequence:
         assert 0 <= i < self.num_blocks
         return self.token_ids[i * self.block_size : (i + 1) * self.block_size]
 
-    def append_token(self, token_id: int):
-        self.token_ids.append(token_id)
-        self.last_token = token_id
-        self.num_tokens += 1
+    def append_tokens(self, token_ids: list[int]):
+        self.token_ids.extend(token_ids)
+        self.num_tokens += len(token_ids)
+        self.last_token = token_ids[-1]
+
+    def set_draft_tokens(self, draft_token_ids: list[int]):
+        self.spec_token_ids = draft_token_ids
+
+    def prepare_input_ids_and_positions(self, token_ids: list[int], draft_token_ids: list[int]):
+        self.input_ids = token_ids[-1:]
+        start_pos = len(self.token_ids)
+        self.positions = [start_pos]
+
+        if draft_token_ids:
+            self.input_ids.extend(draft_token_ids)
+            for i in range(len(draft_token_ids)):
+                self.positions.append(start_pos + 1 + i)

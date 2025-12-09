@@ -194,3 +194,7 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 .python-version
+
+# Linting
+actionlint
+shellcheck*/

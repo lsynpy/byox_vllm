@@ -204,3 +204,71 @@ def test_prepare_decode_multiple_with_cached_tokens():
     assert torch.equal(input_ids.cpu(), torch.tensor([4, 9], dtype=torch.int64))
     assert torch.equal(positions.cpu(), torch.tensor([3, 4], dtype=torch.int64))
     reset_context()
+
+
+def test_prepare_spec_decode_without_draft_tokens():
+    runner = make_model_runner()
+    seq = Sequence([1, 2, 3, 4, 5], block_size=runner.block_size)
+    seq.block_table = [0]
+    seq.num_cached_tokens = 0
+    input_ids, positions = runner._prepare_spec_decode([seq])
+    context = get_context()
+
+    # Test context values for speculative decoding
+    assert context.is_prefill
+    assert torch.equal(context.cu_seqlens_q.cpu(), torch.tensor([0, 5]))
+    assert torch.equal(context.cu_seqlens_k.cpu(), torch.tensor([0, 5]))
+    assert context.max_seqlen_q == 5
+    assert context.max_seqlen_k == 5
+    assert torch.equal(context.slot_mapping.cpu(), torch.tensor([0, 1, 2, 3, 4]))
+    assert context.context_lens is None
+    assert context.block_tables is None
+    assert torch.equal(input_ids.cpu(), torch.tensor([1, 2, 3, 4, 5], dtype=torch.int64))
+    assert torch.equal(positions.cpu(), torch.tensor([0, 1, 2, 3, 4], dtype=torch.int64))
+    reset_context()
+
+
+def test_prepare_spec_decode_with_draft_tokens():
+    runner = make_model_runner()
+    seq = Sequence([1, 2, 3], block_size=runner.block_size)
+    seq.set_draft_tokens([10, 11])  # Add draft tokens
+    seq.block_table = [0]
+    seq.num_cached_tokens = 0
+    input_ids, positions = runner._prepare_spec_decode([seq])
+    context = get_context()
+
+    # Check that draft tokens are included in the input
+    expected_input_ids = torch.tensor([1, 2, 3, 10, 11], dtype=torch.int64)
+    expected_positions = torch.tensor([0, 1, 2, 3, 4], dtype=torch.int64)
+
+    assert context.is_prefill
+    assert torch.equal(input_ids.cpu(), expected_input_ids)
+    assert torch.equal(positions.cpu(), expected_positions)
+    reset_context()
+
+
+def test_prepare_spec_decode_multiple_sequences_mixed_draft_tokens():
+    runner = make_model_runner()
+    seq1 = Sequence([1, 2], block_size=runner.block_size)
+    seq1.set_draft_tokens([10, 11, 12])  # Has draft tokens
+
+    seq2 = Sequence([3, 4, 5], block_size=runner.block_size)
+    # No draft tokens for seq2
+
+    seq1.block_table = [0]
+    seq2.block_table = [1]
+    seq1.num_cached_tokens = 0
+    seq2.num_cached_tokens = 0
+
+    input_ids, positions = runner._prepare_spec_decode([seq1, seq2])
+    context = get_context()
+
+    # Expected: [1,2] + [10,11,12] + [3,4,5] = [1,2,10,11,12,3,4,5]
+    expected_input_ids = torch.tensor([1, 2, 10, 11, 12, 3, 4, 5], dtype=torch.int64)
+    # Expected positions: [0,1] + [2,3,4] for seq1, [0,1,2] for seq2 = [0,1,2,3,4,0,1,2]
+    expected_positions = torch.tensor([0, 1, 2, 3, 4, 0, 1, 2], dtype=torch.int64)
+
+    assert context.is_prefill
+    assert torch.equal(input_ids.cpu(), expected_input_ids)
+    assert torch.equal(positions.cpu(), expected_positions)
+    reset_context()

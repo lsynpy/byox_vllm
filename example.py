@@ -1,18 +1,16 @@
-import logging
 import os
 
 from nanovllm import LLM, SamplingParams
-from nanovllm.utils.logging import get_logger, set_default_log_level
+from nanovllm.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 def main():
-    set_default_log_level(logging.DEBUG)
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
-    llm = LLM(path, enforce_eager=True, tensor_parallel_size=1)
+    llm = LLM(path, enforce_eager=True, gpu_memory_utilization=0.3)
 
-    sampling_params = SamplingParams(temperature=0.0, max_tokens=4)
+    sampling_params = SamplingParams(temperature=0.0, max_tokens=32)
     prompts = [
         "List the first ten prime numbers:",
         "The capital of France is",

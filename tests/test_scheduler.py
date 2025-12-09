@@ -74,7 +74,7 @@ def test_max_batched_tokens_exceed():
     output = scheduler.schedule()
     seqs = output.scheduled_seqs if output.scheduled_seqs else []
     is_prefill = output.decode_type == DecodeType.PREFILL
-    seq1.append_token(100)  # simulate prefilling phase to generate one token
+    seq1.append_tokens(100)  # simulate prefilling phase to generate one token
 
     assert seqs == [seq1]
     assert is_prefill
@@ -98,7 +98,7 @@ def test_preemption():
     seq0 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
     scheduler.add(seq0)
     scheduler.schedule()
-    seq0.append_token(100)
+    seq0.append_tokens(100)
 
     assert scheduler.running == deque([seq0])
     assert scheduler.block_manager.free_block_ids == deque([7, 8, 9])
@@ -107,7 +107,7 @@ def test_preemption():
     seq1 = Sequence([i for i in range(7, 9) for _ in range(block_size)], block_size)
     scheduler.add(seq1)
     scheduler.schedule()
-    seq1.append_token(101)
+    seq1.append_tokens(101)
 
     assert scheduler.running == deque([seq0, seq1])
     assert scheduler.block_manager.free_block_ids == deque([9])

@@ -1,8 +1,6 @@
 import torch
 from torch import nn
 
-from nanovllm.sample.metadata import SamplingMetadata
-
 
 class Sampler(nn.Module):
     def __init__(self):
@@ -21,9 +19,7 @@ class Sampler(nn.Module):
         self,
         logits: torch.Tensor,
         temperatures: torch.Tensor,
-        sampling_metadata: SamplingMetadata = None,
-        predict_bonus_token: bool = False,
-    ) -> list[int]:
+    ) -> list[int] | torch.Tensor:
         temp_zero_mask = temperatures == 0
 
         sample_tokens = torch.zeros(logits.shape[0], dtype=torch.long, device=logits.device)
@@ -40,4 +36,5 @@ class Sampler(nn.Module):
             normal_tokens = self._stochastic_sample(relevant_logits, relevant_temps)
             sample_tokens[non_zero_temp_mask] = normal_tokens
 
+        # Return list for regular sampling
         return sample_tokens.tolist()

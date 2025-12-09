@@ -14,6 +14,18 @@ class Context:
     context_lens: torch.Tensor | None = None
     block_tables: torch.Tensor | None = None
 
+    def __repr__(self):
+        return (
+            f"Context(is_prefill={self.is_prefill}, "
+            f"max_seqlen_q={self.max_seqlen_q}, "
+            f"max_seqlen_k={self.max_seqlen_k}, "
+            f"cu_seqlens_q={self.cu_seqlens_q.tolist() if self.cu_seqlens_q is not None else None}, "
+            f"cu_seqlens_k={self.cu_seqlens_k.tolist() if self.cu_seqlens_k is not None else None}, "
+            f"slot_mapping={self.slot_mapping.tolist() if self.slot_mapping is not None else None}, "
+            f"context_lens={self.context_lens.tolist() if self.context_lens is not None else None}, "
+            f"block_tables={self.block_tables.tolist() if self.block_tables is not None else None})"
+        )
+
 
 _CONTEXT = Context()
 

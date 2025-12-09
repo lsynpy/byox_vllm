@@ -1,10 +1,15 @@
+import logging
+
 import torch
 import triton
 import triton.language as tl
-from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
+from flash_attn import flash_attn_varlen_func
 from torch import nn
 
 from nanovllm.utils.context import get_context
+from nanovllm.utils.logging import get_logger
+
+logger = get_logger(__name__, logging.DEBUG)
 
 
 @triton.jit
@@ -68,6 +73,15 @@ class Attention(nn.Module):
         context = get_context()
         k_cache, v_cache = self.k_cache, self.v_cache
         if k_cache.numel() and v_cache.numel():
+            logger.debug_once(
+                "store_kvcache: k.shape: %s, v.shape: %s, k_cache.shape: %s, "
+                "v_cache.shape: %s, slot_mapping: %s",
+                k.shape,
+                v.shape,
+                k_cache.shape,
+                v_cache.shape,
+                context.slot_mapping.tolist(),
+            )
             store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
         if context.is_prefill:
             if context.block_tables is not None:  # warmup has no kv cache
@@ -84,14 +98,49 @@ class Attention(nn.Module):
                 causal=True,
                 block_table=context.block_tables,
             )
+            logger.debug_once(
+                "call flash_attn prefill: q shape: %s, k shape: %s, v shape: %s, "
+                "max_seqlen_q: %s, cu_seqlens_q: %s, "
+                "max_seqlen_k: %s, cu_seqlens_k: %s, block_tables: %s"
+                "\nflash_attn out: %s",
+                q.shape,
+                k.shape,
+                v.shape,
+                context.max_seqlen_q,
+                context.cu_seqlens_q.tolist(),
+                context.max_seqlen_k,
+                context.cu_seqlens_k.tolist(),
+                context.block_tables.tolist() if context.block_tables is not None else None,
+                o.shape,
+            )
         else:  # decode
-            o = flash_attn_with_kvcache(
-                q.unsqueeze(1),
+            q_reshape = q.view(-1, q.shape[-2], q.shape[-1])  # [total_q_tokens, num_heads, head_dim]
+
+            o = flash_attn_varlen_func(
+                q_reshape,
                 k_cache,
                 v_cache,
-                cache_seqlens=context.context_lens,
-                block_table=context.block_tables,
+                max_seqlen_q=context.max_seqlen_q,
+                cu_seqlens_q=context.cu_seqlens_q,
+                max_seqlen_k=context.max_seqlen_k,
+                cu_seqlens_k=context.cu_seqlens_k,
                 softmax_scale=self.scale,
                 causal=True,
+                block_table=context.block_tables,
+            )
+            logger.debug_once(
+                "call flash_attn decode: q shape: %s, k shape: %s, v shape: %s, "
+                "max_seqlen_q: %s, cu_seqlens_q: %s, "
+                "max_seqlen_k: %s, cu_seqlens_k: %s, block_tables: %s"
+                "\nflash_attn out: %s",
+                q_reshape.shape,
+                k_cache.shape,
+                v_cache.shape,
+                context.max_seqlen_q,
+                context.cu_seqlens_q.tolist(),
+                context.max_seqlen_k,
+                context.cu_seqlens_k.tolist(),
+                context.block_tables.tolist() if context.block_tables is not None else None,
+                o.shape,
             )
         return o

@@ -91,16 +91,17 @@ class LLMEngine:
         self.scheduler.add(seq)
 
     def _step(self):
-        scheduler_output = self.scheduler.schedule()
-        seqs = scheduler_output.scheduled_seqs
+        logger.info("->" * 50)
+        seqs, decode_type = self.scheduler.schedule()
         if not seqs:
             outputs = []
             num_tokens = 0
             return outputs, num_tokens
-        computed_token_ids, sampled_token_ids = self.model_runner.call("run", scheduler_output)
-        self.scheduler.postprocess(seqs, computed_token_ids, sampled_token_ids)
+        sampled_token_ids, draft_token_ids = self.model_runner.call("run", seqs, decode_type)
+        self.scheduler.postprocess(seqs, sampled_token_ids, draft_token_ids)
         outputs = [(seq.seq_id, seq.computed_token_ids) for seq in seqs if seq.is_finished]
-        return outputs, scheduler_output.total_num_scheduled_tokens
+        logger.info("<-" * 50)
+        return outputs, sum([seq.num_comupted_tokens for seq in seqs])
 
     def _is_finished(self):
         return self.scheduler.is_finished()
