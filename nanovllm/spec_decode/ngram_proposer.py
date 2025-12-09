@@ -62,7 +62,6 @@ class NgramProposer:
             [""] * 1024,
             np.zeros(1024, dtype=np.int32),
             np.zeros((1024, self.max_model_len), dtype=np.int32),
-            set(),
         )
 
     def batch_propose(
@@ -141,7 +140,6 @@ class NgramProposer:
         req_ids: list[str],
         num_tokens_no_spec: np.ndarray,
         token_ids_cpu: np.ndarray,
-        spec_decode_unsupported_reqs: set,
     ) -> list[list[int]]:
         # find which requests need ngram proposals
         valid_ngram_requests = []
@@ -149,12 +147,6 @@ class NgramProposer:
             num_sampled_ids = sampled_ids.shape[0]
             if not num_sampled_ids:
                 # Skip speculative decoding.
-                continue
-
-            # Skip requests that require sampling parameters that are not
-            # supported with speculative decoding.
-            req_id = req_ids[i]
-            if req_id in spec_decode_unsupported_reqs:
                 continue
 
             num_tokens = num_tokens_no_spec[i]
@@ -172,10 +164,6 @@ class NgramProposer:
         )
 
         return draft_token_ids
-
-    def load_model(self, *args, **kwargs):
-        # No model to load.
-        pass
 
 
 @njit(parallel=True)

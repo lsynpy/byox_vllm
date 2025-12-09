@@ -369,16 +369,10 @@ class ModelRunner:
             )
             return [[token_id] for token_id in sampled_token_ids]
 
-        # For speculative decoding, we pass the necessary parameters to the rejection sampler
-        # Get the draft tokens that were proposed - these are stored in spec_token_ids
         draft_tokens = []
         for seq in seqs:
-            if hasattr(seq, "spec_token_ids") and seq.spec_token_ids is not None:
-                draft_tokens.append(seq.spec_token_ids)
-            else:
-                draft_tokens.append([])
+            draft_tokens.append(seq.spec_token_ids)
 
-        # Pass the required arguments to the rejection sampler
         sampled_token_ids = self.rejection_sampler(
             logits=logits,
             spec_token_ids=draft_tokens,
@@ -404,7 +398,6 @@ class ModelRunner:
             req_ids=req_ids,
             num_tokens_no_spec=num_tokens_no_spec,
             token_ids_cpu=token_ids_cpu,
-            spec_decode_unsupported_reqs=set(),  # In a real implementation, this would be determined
         )
 
         # Set the draft tokens in the sequences
@@ -418,26 +411,3 @@ class ModelRunner:
     def _capture_cudagraph(self):
         # CUDA graph support has been disabled - using eager execution only
         pass
-
-    def _get_cumsum_and_arange(
-        self,
-        num_tokens: np.ndarray,
-        cumsum_dtype: np.dtype | None = None,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Get the cumulative sum and batched arange of the given array.
-        # E.g., [2, 5, 3] -> ([2, 7, 10], [0, 1, 0, 1, 2, 3, 4, 0, 1, 2])
-        # Equivalent to but faster than:
-        # np.concatenate([np.arange(n) for n in num_tokens])
-        """
-        if len(num_tokens) == 0:
-            return np.array([], dtype=cumsum_dtype or np.int32), np.array([], dtype=np.int64)
-
-        # Step 1. [2, 5, 3] -> [2, 7, 10]
-        cu_num_tokens = np.cumsum(num_tokens, dtype=cumsum_dtype)
-        total_num_tokens = cu_num_tokens[-1]
-        # Step 2. [2, 7, 10] -> [0, 0, 2, 2, 2, 2, 2, 7, 7, 7]
-        cumsums_offsets = np.repeat(cu_num_tokens - num_tokens, num_tokens)
-        # Step 3. [0, 1, 0, 1, 2, 3, 4, 0, 1, 2]
-        arange = self.arange_np[:total_num_tokens] - cumsums_offsets
-
-        return cu_num_tokens, arange

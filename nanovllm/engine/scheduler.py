@@ -12,8 +12,7 @@ logger = get_logger(__name__)
 class DecodeType(Enum):
     EMPTY = auto()
     PREFILL = auto()
-    DECODE = auto()  # Auto-regression
-    SD = auto()  # Speculative decoding
+    DECODE = auto()
 
 
 class Scheduler:
