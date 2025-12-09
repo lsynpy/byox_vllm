@@ -20,17 +20,17 @@ def test_seq_waiting_for_allocation():
 
     seq0 = Sequence(all_token_ids, block_size)
     scheduler.add(seq0)
-    output = scheduler.schedule()
-    seqs = output.scheduled_seqs
-    is_prefill = output.decode_type == DecodeType.PREFILL
+    scheduled_seqs, decode_type = scheduler.schedule()
+    seqs = scheduled_seqs
+    is_prefill = decode_type == DecodeType.PREFILL
     assert seqs == [seq0]
     assert is_prefill
 
     seq1 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
     scheduler.add(seq1)
-    output = scheduler.schedule()
-    seqs = output.scheduled_seqs
-    is_prefill = output.decode_type == DecodeType.PREFILL
+    scheduled_seqs, decode_type = scheduler.schedule()
+    seqs = scheduled_seqs
+    is_prefill = decode_type == DecodeType.PREFILL
     assert seqs == [seq0]
     assert not is_prefill
 
@@ -50,9 +50,9 @@ def test_max_batched_tokens_exceed():
     scheduler = Scheduler(config)
     seq0 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
     scheduler.add(seq0)
-    output = scheduler.schedule()  # only seq0 in queue, rotate has no effect
-    seqs = output.scheduled_seqs if output.scheduled_seqs else []
-    is_prefill = output.decode_type == DecodeType.PREFILL
+    scheduled_seqs, decode_type = scheduler.schedule()  # only seq0 in queue, rotate has no effect
+    seqs = scheduled_seqs if scheduled_seqs else []
+    is_prefill = decode_type == DecodeType.PREFILL
     assert seqs == []
     assert not is_prefill
 
@@ -64,24 +64,24 @@ def test_max_batched_tokens_exceed():
     # seq0 is still at start of queue
 
     assert scheduler.waiting == deque([seq0, seq1, seq2])
-    output = scheduler.schedule()  # will rotate seq0 to the end of queue
-    seqs = output.scheduled_seqs if output.scheduled_seqs else []
-    is_prefill = output.decode_type == DecodeType.PREFILL
+    scheduled_seqs, decode_type = scheduler.schedule()  # will rotate seq0 to the end of queue
+    seqs = scheduled_seqs if scheduled_seqs else []
+    is_prefill = decode_type == DecodeType.PREFILL
     assert seqs == []
     assert not is_prefill
     assert scheduler.waiting == deque([seq1, seq2, seq0])
     # seq1 do prefilling, then seq2 exceed, and rotate
-    output = scheduler.schedule()
-    seqs = output.scheduled_seqs if output.scheduled_seqs else []
-    is_prefill = output.decode_type == DecodeType.PREFILL
-    seq1.append_tokens(100)  # simulate prefilling phase to generate one token
+    scheduled_seqs, decode_type = scheduler.schedule()
+    seqs = scheduled_seqs if scheduled_seqs else []
+    is_prefill = decode_type == DecodeType.PREFILL
+    seq1.append_tokens([100])  # simulate prefilling phase to generate one token
 
     assert seqs == [seq1]
     assert is_prefill
     assert scheduler.waiting == deque([seq0, seq2])
-    output = scheduler.schedule()
-    seqs = output.scheduled_seqs if output.scheduled_seqs else []
-    is_prefill = output.decode_type == DecodeType.PREFILL
+    scheduled_seqs, decode_type = scheduler.schedule()
+    seqs = scheduled_seqs if scheduled_seqs else []
+    is_prefill = decode_type == DecodeType.PREFILL
     assert seqs == [seq1]
     assert not is_prefill
     assert scheduler.waiting == deque([seq2, seq0])
@@ -98,7 +98,7 @@ def test_preemption():
     seq0 = Sequence([i for i in range(7) for _ in range(block_size)], block_size)
     scheduler.add(seq0)
     scheduler.schedule()
-    seq0.append_tokens(100)
+    seq0.append_tokens([100])
 
     assert scheduler.running == deque([seq0])
     assert scheduler.block_manager.free_block_ids == deque([7, 8, 9])
@@ -107,7 +107,7 @@ def test_preemption():
     seq1 = Sequence([i for i in range(7, 9) for _ in range(block_size)], block_size)
     scheduler.add(seq1)
     scheduler.schedule()
-    seq1.append_tokens(101)
+    seq1.append_tokens([101])
 
     assert scheduler.running == deque([seq0, seq1])
     assert scheduler.block_manager.free_block_ids == deque([9])

@@ -18,8 +18,11 @@ def test_sampler_temperature_zero():
     # For temperature 0, we expect argmax behavior (greedy sampling)
     expected = torch.argmax(logits, dim=-1)
 
-    assert torch.equal(result, expected), f"Expected {expected}, got {result}"
-    assert torch.equal(result, torch.tensor([0, 2]))
+    # Convert result to tensor for comparison
+    expected_tensor = expected.tolist()
+
+    assert result == expected_tensor, f"Expected {expected_tensor}, got {result}"
+    assert result == [0, 2]
 
 
 def test_sampler_normal_temperature():
@@ -35,9 +38,9 @@ def test_sampler_normal_temperature():
     result = sampler(logits, temperatures)
 
     # Result should be valid token indices (within vocab size)
-    assert result.shape[0] == logits.shape[0]  # batch size matches
-    assert torch.all(result >= 0)  # all indices are non-negative
-    assert torch.all(result < logits.shape[1])  # all indices within vocab size
+    assert len(result) == logits.shape[0]  # batch size matches
+    assert all(idx >= 0 for idx in result)  # all indices are non-negative
+    assert all(idx < logits.shape[1] for idx in result)  # all indices within vocab size
 
 
 def test_sampler_mixed_temperatures():
@@ -62,7 +65,7 @@ def test_sampler_mixed_temperatures():
     assert result[2] == 1, f"Expected token 1 for temp=0, got {result[2]}"
 
     # Verify all results are valid token indices
-    assert torch.all(result >= 0) and torch.all(result < logits.shape[1])
+    assert all(0 <= idx < logits.shape[1] for idx in result)
 
 
 def test_sampler_single_temperature_zero():
@@ -73,9 +76,9 @@ def test_sampler_single_temperature_zero():
     temperatures = torch.tensor([0.0])
 
     result = sampler(logits, temperatures)
-    expected = torch.tensor([1])  # index of max value (5.0)
+    expected = [1]  # index of max value (5.0), returned as list
 
-    assert torch.equal(result, expected)
+    assert result == expected
 
 
 def test_sampler_all_high_temperature():
@@ -88,5 +91,5 @@ def test_sampler_all_high_temperature():
     result = sampler(logits, temperatures)
 
     # Result should be valid token index
-    assert result.shape[0] == 1
+    assert len(result) == 1
     assert 0 <= result[0] < logits.shape[1]

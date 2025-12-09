@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from nanovllm.sample.rejection_sampler import INVALID_TOKEN_ID, RejectionSampler
+from nanovllm.sample.rejection_sampler import RejectionSampler
 
 
 @pytest.fixture
@@ -27,8 +27,8 @@ def test_perfect_match(sampler):
 
     logits = create_logits_tensor(output_tokens)
     output = sampler(logits, spec_tokens)
-    expected = torch.tensor([[1, 2, 3, 4]], dtype=torch.int, device=logits.device)
-    assert torch.equal(output, expected)
+    expected = [[1, 2, 3, 4]]  # Now returns a list
+    assert output == expected
 
 
 def test_early_mismatch(sampler):
@@ -38,10 +38,8 @@ def test_early_mismatch(sampler):
 
     logits = create_logits_tensor(output_tokens)
     output = sampler(logits, spec_tokens)
-    expected = torch.tensor(
-        [[1, 5, INVALID_TOKEN_ID, INVALID_TOKEN_ID]], dtype=torch.int, device=logits.device
-    )
-    assert torch.equal(output, expected)
+    expected = [[1, 5]]  # Now returns a list - only valid tokens
+    assert output == expected
 
 
 def test_multiple_sequences(sampler):
@@ -51,8 +49,8 @@ def test_multiple_sequences(sampler):
 
     logits = create_logits_tensor(output_tokens)
     output = sampler(logits, spec_tokens)
-    expected = torch.tensor([[1, 2, 5], [3, 4, INVALID_TOKEN_ID]], dtype=torch.int, device=logits.device)
-    assert torch.equal(output, expected)
+    expected = [[1, 2, 5], [3, 4]]  # Now returns a list - only valid tokens
+    assert output == expected
 
 
 def test_single_token_sequence(sampler):
@@ -62,8 +60,8 @@ def test_single_token_sequence(sampler):
 
     logits = create_logits_tensor(output_tokens)
     output = sampler(logits, spec_tokens)
-    expected = torch.tensor([[1, 2]], dtype=torch.int, device=logits.device)
-    assert torch.equal(output, expected)
+    expected = [[1, 2]]  # Now returns a list
+    assert output == expected
 
 
 def test_empty_sequence(sampler):
@@ -73,8 +71,8 @@ def test_empty_sequence(sampler):
 
     logits = create_logits_tensor(output_tokens)
     output = sampler(logits, spec_tokens)
-    expected = torch.tensor([[5]], dtype=torch.int, device=logits.device)
-    assert torch.equal(output, expected)
+    expected = [[5]]  # Now returns a list
+    assert output == expected
 
 
 def test_multiple_mismatches(sampler):
@@ -84,28 +82,23 @@ def test_multiple_mismatches(sampler):
 
     logits = create_logits_tensor(output_tokens)
     output = sampler(logits, spec_tokens)
-    expected = torch.tensor(
-        [[1, 2, 7, INVALID_TOKEN_ID], [4, 8, INVALID_TOKEN_ID, INVALID_TOKEN_ID]],
-        dtype=torch.int,
-        device=logits.device,
-    )
-    assert torch.equal(output, expected)
+    expected = [[1, 2, 7], [4, 8]]  # Now returns a list - only valid tokens
+    assert output == expected
 
 
 @pytest.mark.parametrize(
     "spec_tokens,output_tokens,expected",
     [
         ([[1, 2]], [1, 2, 3], [[1, 2, 3]]),  # Perfect match with bonus
-        ([[1]], [2, 3], [[2, INVALID_TOKEN_ID]]),  # First mismatch
-        ([[1, 2], [3, 4]], [1, 5, 6, 3, 4, 7], [[1, 5, INVALID_TOKEN_ID], [3, 4, 7]]),  # Mixed matches
+        ([[1]], [2, 3], [[2]]),  # First mismatch - only valid token
+        ([[1, 2], [3, 4]], [1, 5, 6, 3, 4, 7], [[1, 5], [3, 4, 7]]),  # Mixed matches
     ],
 )
 def test_parametrized_cases(sampler, spec_tokens, output_tokens, expected):
     """Parametrized test for various matching scenarios"""
     logits = create_logits_tensor(output_tokens)
     output = sampler(logits, spec_tokens)
-    expected_tensor = torch.tensor(expected, dtype=torch.int, device=logits.device)
-    assert torch.equal(output, expected_tensor)
+    assert output == expected
 
 
 def test_logits_shape_handling(sampler):
@@ -116,6 +109,6 @@ def test_logits_shape_handling(sampler):
 
     logits = create_logits_tensor(output_tokens, vocab_size)
     output = sampler(logits, spec_tokens)
-    expected = torch.tensor([[1, 2, 3]], dtype=torch.int, device=logits.device)
-    assert torch.equal(output, expected)
+    expected = [[1, 2, 3]]  # Now returns a list
+    assert output == expected
     assert logits.shape[-1] == vocab_size
