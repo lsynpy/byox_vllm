@@ -10,7 +10,7 @@ def main():
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
     llm = LLM(path, enforce_eager=True, gpu_memory_utilization=0.3)
 
-    sampling_params = SamplingParams(temperature=0.0, max_tokens=32)
+    sampling_params = SamplingParams(temperature=0.0, max_tokens=64)
     prompts = [
         "List the first ten prime numbers:",
         "The capital of France is",

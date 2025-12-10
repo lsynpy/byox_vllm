@@ -58,8 +58,22 @@ class ModelRunner:
         default_dtype = torch.get_default_dtype()
         torch.set_default_dtype(hf_config.dtype)
         torch.set_default_device("cuda")
+
+        # Calculate memory usage before loading the model
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        free_memory_before, total_gpu_memory = torch.cuda.mem_get_info()
+        used_memory_before = total_gpu_memory - free_memory_before
+
         self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model)
+
+        # Calculate memory usage after loading the model
+        free_memory_after, _ = torch.cuda.mem_get_info()
+        used_memory_after = total_gpu_memory - free_memory_after
+        memory_used_by_model = (used_memory_after - used_memory_before) / (1024**3)  # Convert to GB
+        logger.info("load model %s, took %.2f GB", config.model, memory_used_by_model)
+
         self._warmup_model()
         self._allocate_kv_cache()
         if not self.enforce_eager:
@@ -83,8 +97,6 @@ class ModelRunner:
         return method(*args)
 
     def run(self, seqs: list[Sequence], decode_type: DecodeType) -> tuple[list[list[int]], list[list[int]]]:
-        logger.debug("Running model in %s phase: %s", decode_type, seqs)
-
         input_ids, positions = self._prepare_inputs_context(seqs, decode_type)
 
         logits = self._execute_model(input_ids, positions)
@@ -277,55 +289,32 @@ class ModelRunner:
         )
 
         # Calculate cumulative sequence lengths for queries and keys/values
-        # In decode mode, we have cached context for each sequence and new tokens to decode
-        batch_size = len(context_lens)  # Number of sequences in the batch
-        # Using input_ids as proxy for query tokens since input_ids contains the new tokens to decode
-        q = input_ids
-
+        # Each sequence may have a different number of tokens to decode
         cu_seqlens_q_list = [0]
         cu_seqlens_k_list = [0]
 
-        for i in range(batch_size):
-            context_len = int(context_lens[i])
-
-            # Determine how many tokens in q belong to this sequence
-            # For speculative decoding, there might be multiple tokens per sequence
-            tokens_for_this_seq = 0
-
-            # Calculate how many tokens in q should be assigned to sequence i
-            # If there are more tokens than sequences, distribute them
-            if len(q) > batch_size:
-                # Speculative decoding: multiple tokens per sequence
-                # Distribute tokens evenly among sequences, with possible remainder
-                base_tokens_per_seq = len(q) // batch_size
-                extra_tokens = len(q) % batch_size
-
-                tokens_for_this_seq = base_tokens_per_seq + 1 if i < extra_tokens else base_tokens_per_seq
-            else:
-                # Normal decoding: 1 token per sequence
-                tokens_for_this_seq = 1
+        for i, seq in enumerate(seqs):
+            # Number of tokens to decode for this specific sequence
+            # This handles both regular decoding (1 token) and speculative decoding (1 + draft tokens)
+            tokens_for_this_seq = len(seq.input_ids)
 
             # Add to cumulative sequence lengths
             cu_seqlens_q_list.append(cu_seqlens_q_list[-1] + tokens_for_this_seq)
 
-            # For keys/values: cached length + new tokens for this sequence
-            total_kv_len_for_seq = context_len + tokens_for_this_seq
+            # For keys/values: original sequence length + new tokens for this sequence
+            total_kv_len_for_seq = len(seq) + tokens_for_this_seq
             cu_seqlens_k_list.append(cu_seqlens_k_list[-1] + total_kv_len_for_seq)
 
-        cu_seqlens_q = torch.tensor(cu_seqlens_q_list, dtype=torch.int32, device=q.device)
-        cu_seqlens_k = torch.tensor(cu_seqlens_k_list, dtype=torch.int32, device=q.device)
+        cu_seqlens_q = torch.tensor(cu_seqlens_q_list, dtype=torch.int32, pin_memory=True).cuda(
+            non_blocking=True
+        )
+        cu_seqlens_k = torch.tensor(cu_seqlens_k_list, dtype=torch.int32, pin_memory=True).cuda(
+            non_blocking=True
+        )
 
-        max_seqlen_q = int(
-            max([cu_seqlens_q[i + 1] - cu_seqlens_q[i] for i in range(len(cu_seqlens_q) - 1)], default=1)
-        )
-        max_seqlen_k = int(
-            max(
-                [cu_seqlens_k[i + 1] - cu_seqlens_k[i] for i in range(len(cu_seqlens_k) - 1)],
-                default=int(max(context_lens)) + len(q) // len(context_lens)
-                if len(context_lens) > 0
-                else 1,
-            )
-        )
+        # Calculate max sequence length for query and key/value
+        max_seqlen_q = int(max([len(seq.input_ids) for seq in seqs], default=1))
+        max_seqlen_k = int(max([len(seq) + len(seq.input_ids) for seq in seqs], default=1))
 
         block_tables = self._prepare_block_tables(seqs)
         set_context(

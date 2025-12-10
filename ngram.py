@@ -28,9 +28,9 @@ def main():
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
 
     prompts = [
-        # "List the first ten prime numbers:",
-        # "The capital of France is",
-        # "Once upon a time in a land far, far away,",
+        "List the first ten prime numbers:",
+        "The capital of France is",
+        "Once upon a time in a land far, far away,",
         "List 10 numbers only contains digit 1:",
     ]
     speculative_config = {
@@ -39,7 +39,7 @@ def main():
         "prompt_lookup_max": PROMPT_LOOKUP_MAX,
         "prompt_lookup_min": PROMPT_LOOKUP_MIN,
     }
-    sampling_params = SamplingParams(temperature=0, max_tokens=32)
+    sampling_params = SamplingParams(temperature=0, max_tokens=64)
 
     llm = LLM(
         path,
