@@ -14,7 +14,8 @@ try:
 except ImportError:
     pass
 
-from nanovllm import LLM, SamplingParams
+from nanovllm.llm import LLM
+from nanovllm.sample.sampling_params import SamplingParams
 from nanovllm.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -22,6 +23,7 @@ logger = get_logger(__name__)
 NUM_SPEC_TOKENS = 2
 PROMPT_LOOKUP_MAX = 5
 PROMPT_LOOKUP_MIN = 2
+OUTPUT_LEN = 32
 
 
 def main():
@@ -39,7 +41,7 @@ def main():
         "prompt_lookup_max": PROMPT_LOOKUP_MAX,
         "prompt_lookup_min": PROMPT_LOOKUP_MIN,
     }
-    sampling_params = SamplingParams(temperature=0, max_tokens=64)
+    sampling_params = SamplingParams(temperature=0, max_tokens=OUTPUT_LEN)
 
     llm = LLM(
         path,

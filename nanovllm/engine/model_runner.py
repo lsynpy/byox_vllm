@@ -13,6 +13,7 @@ from nanovllm.engine.sequence import Sequence
 from nanovllm.models.qwen3 import Qwen3ForCausalLM
 from nanovllm.sample.rejection_sampler import RejectionSampler
 from nanovllm.sample.sampler import Sampler
+from nanovllm.spec_decode.eagle_proposer import EagleProposer
 from nanovllm.spec_decode.ngram_proposer import NgramProposer
 from nanovllm.utils.context import get_context, reset_context, set_context
 from nanovllm.utils.loader import load_model
@@ -44,8 +45,12 @@ class ModelRunner:
             self.num_spec_tokens = self.speculative_config.num_speculative_tokens
             if self.speculative_config.method == "ngram":
                 self.drafter = NgramProposer(self.config)
+            elif self.speculative_config.method == "eagle3":
+                self.drafter = EagleProposer(self.config, self.device)
             else:
-                raise ValueError(f"Unknown speculative decoding method: {self.speculative_config.method}")
+                raise ValueError(
+                    f"Unknown speculative decoding method: {self.speculative_config.method}"
+                )
             self.rejection_sampler = RejectionSampler()
 
         self.arange_np = np.arange(
@@ -66,13 +71,15 @@ class ModelRunner:
         used_memory_before = total_gpu_memory - free_memory_before
 
         self.model = Qwen3ForCausalLM(hf_config)
-        load_model(self.model, config.model)
+        load_model(self.model, config.model_path)
+        if self.drafter and isinstance(self.drafter, EagleProposer):
+            self.drafter.load_model(self.model)
 
         # Calculate memory usage after loading the model
         free_memory_after, _ = torch.cuda.mem_get_info()
         used_memory_after = total_gpu_memory - free_memory_after
         memory_used_by_model = (used_memory_after - used_memory_before) / (1024**3)  # Convert to GB
-        logger.info("load model %s, took %.2f GB", config.model, memory_used_by_model)
+        logger.info("load model %s, took %.2f GB", config.model_path, memory_used_by_model)
 
         self._warmup_model()
         self._allocate_kv_cache()
@@ -96,7 +103,9 @@ class ModelRunner:
         method = getattr(self, method_name, None)
         return method(*args)
 
-    def run(self, seqs: list[Sequence], decode_type: DecodeType) -> tuple[list[list[int]], list[list[int]]]:
+    def run(
+        self, seqs: list[Sequence], decode_type: DecodeType
+    ) -> tuple[list[list[int]], list[list[int]]]:
         input_ids, positions = self._prepare_inputs_context(seqs, decode_type)
 
         logits = self._execute_model(input_ids, positions)
@@ -260,10 +269,19 @@ class ModelRunner:
             non_blocking=True
         )
         set_context(
-            True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables
+            True,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            max_seqlen_q,
+            max_seqlen_k,
+            slot_mapping,
+            None,
+            block_tables,
         )
         logger.debug("context: %s", get_context())
-        logger.debug("prepared prefill: inputs: %s, positions: %s", input_ids.tolist(), positions.tolist())
+        logger.debug(
+            "prepared prefill: inputs: %s, positions: %s", input_ids.tolist(), positions.tolist()
+        )
         return input_ids, positions
 
     def _prepare_decode(self, seqs: list[Sequence]) -> list[int]:
@@ -328,7 +346,9 @@ class ModelRunner:
             block_tables=block_tables,
         )
         logger.debug("context: %s", get_context())
-        logger.debug("prepared decode: inputs: %s, positions: %s", input_ids.tolist(), positions.tolist())
+        logger.debug(
+            "prepared decode: inputs: %s, positions: %s", input_ids.tolist(), positions.tolist()
+        )
         return input_ids, positions
 
     def _prepare_sample(self, seqs: list[Sequence]):

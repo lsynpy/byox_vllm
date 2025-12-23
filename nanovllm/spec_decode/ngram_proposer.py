@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
+# adopt from
+# https://github.com/vllm-project/vllm/blob/4fd9d6a85/vllm/v1/spec_decode/ngram_proposer.py
 import logging
 import os
 
@@ -127,7 +130,9 @@ class NgramProposer:
 
         for i in range(num_requests):
             if i in valid_ngram_requests and self.valid_ngram_num_drafts[i] > 0:
-                draft_token_ids.append(self.valid_ngram_draft[i, : self.valid_ngram_num_drafts[i]].tolist())
+                draft_token_ids.append(
+                    self.valid_ngram_draft[i, : self.valid_ngram_num_drafts[i]].tolist()
+                )
             else:
                 draft_token_ids.append([])
 

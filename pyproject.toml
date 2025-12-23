@@ -61,7 +61,7 @@ ignore = [
 docstring-code-format = true
 
 [tool.ruff]
-line-length = 108
+line-length = 105
 
 [tool.typos.files]
 # these files may be written in non english words
@@ -250,3 +250,7 @@ windo = "windo"
 
 [tool.uv]
 no-build-isolation-package = ["torch"]
+
+[tool.basedpyright]
+typeCheckingMode = "off"
+reportUnusedVariable = "hint"

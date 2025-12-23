@@ -11,7 +11,7 @@ def test_seq_waiting_for_allocation():
     block_size = 256
     num_blocks = 10
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
-    config = Config(model=path, kvcache_block_size=block_size, num_kvcache_blocks=num_blocks)
+    config = Config(model_path=path, kvcache_block_size=block_size, num_kvcache_blocks=num_blocks)
     scheduler = Scheduler(config)
 
     common_token_ids = [i for i in range(3) for _ in range(block_size)]  # Complete 3 blocks
@@ -41,7 +41,7 @@ def test_max_batched_tokens_exceed():
     num_blocks = 10
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
     config = Config(
-        model=path,
+        model_path=path,
         kvcache_block_size=block_size,
         num_kvcache_blocks=num_blocks,
         max_num_batched_tokens=1000,
@@ -91,7 +91,7 @@ def test_preemption():
     block_size = 256
     num_blocks = 10
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
-    config = Config(model=path, kvcache_block_size=block_size, num_kvcache_blocks=num_blocks)
+    config = Config(model_path=path, kvcache_block_size=block_size, num_kvcache_blocks=num_blocks)
     scheduler = Scheduler(config)
 
     # seq0 has 7 full blocks and 1 partial block, is running

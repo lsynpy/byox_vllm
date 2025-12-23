@@ -30,10 +30,14 @@ class VocabParallelEmbedding(nn.Module):
 
     def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor):
         param_data = param.data
-        shard_size = param_data.size(0)
-        start_idx = self.tp_rank * shard_size
-        loaded_weight = loaded_weight.narrow(0, start_idx, shard_size)
-        param_data.copy_(loaded_weight)
+        # If tensor parallel size is 1, load the entire weight directly
+        if self.tp_size == 1:
+            param_data.copy_(loaded_weight)
+        else:
+            shard_size = param_data.size(0)
+            start_idx = self.tp_rank * shard_size
+            loaded_weight = loaded_weight.narrow(0, start_idx, shard_size)
+            param_data.copy_(loaded_weight)
 
     def forward(self, x: torch.Tensor):
         if self.tp_size > 1:
