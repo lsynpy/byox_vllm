@@ -103,14 +103,11 @@ class Eagle3Qwen3Model(nn.Module):
 class Eagle3Qwen3ForCausalLM(Qwen3ForCausalLM):
     def __init__(self, config: Config):
         nn.Module.__init__(self)
-        self.config = config.speculative_config.draft_hf_config
+        self.draft_config = config.speculative_config.draft_hf_config
         self.model = Eagle3Qwen3Model(config=config)
-
-        # Use vocab_size from the draft config
-        draft_vocab_size = getattr(self.config, "vocab_size", self.config.vocab_size)
         self.lm_head = ParallelLMHead(
-            draft_vocab_size,
-            self.config.hidden_size,
+            self.draft_config.draft_vocab_size,
+            self.draft_config.hidden_size,
         )
 
     def forward(

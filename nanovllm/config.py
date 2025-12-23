@@ -6,8 +6,8 @@ from transformers import AutoConfig
 
 @dataclass
 class SpeculativeConfig:
-    method: str | None = None
-    num_speculative_tokens: int = None
+    method: str
+    num_speculative_tokens: int
     # Ngram
     prompt_lookup_max: int | None = None
     prompt_lookup_min: int | None = None

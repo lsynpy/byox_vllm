@@ -25,7 +25,6 @@ def setup_and_teardown_distributed():
 def test_load_pytorch():
     draft_path = os.path.expanduser("~/huggingface/Qwen3-1.7B_eagle3")
 
-    # Create a proper Config with speculative_config for Eagle3 model
     speculative_config = SpeculativeConfig(
         method="eagle3",
         num_speculative_tokens=5,
