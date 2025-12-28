@@ -6,7 +6,7 @@ import torch
 from safetensors import safe_open
 from torch import nn
 
-from nanovllm.models.llama_eagle3 import Eagle3Qwen3ForCausalLM
+from nanovllm.models.qwen3_eagle3 import Eagle3Qwen3ForCausalLM
 
 
 def default_weight_loader(param: nn.Parameter, loaded_weight: torch.Tensor):

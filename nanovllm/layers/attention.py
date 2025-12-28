@@ -74,8 +74,8 @@ class Attention(nn.Module):
         k_cache, v_cache = self.k_cache, self.v_cache
         if k_cache.numel() and v_cache.numel():
             logger.debug_once(
-                "store_kvcache: k.shape: %s, v.shape: %s, k_cache.shape: %s, "
-                "v_cache.shape: %s, slot_mapping: %s",
+                "store_kvcache:\n  k.shape: %s\n  v.shape: %s\n  k_cache.shape: %s"
+                "\n  v_cache.shape: %s\n  slot_mapping: %s",
                 k.shape,
                 v.shape,
                 k_cache.shape,
@@ -99,9 +99,9 @@ class Attention(nn.Module):
                 block_table=context.block_tables,
             )
             logger.debug_once(
-                "call flash_attn prefill: q shape: %s, k shape: %s, v shape: %s, "
-                "max_seqlen_q: %s, cu_seqlens_q: %s, "
-                "max_seqlen_k: %s, cu_seqlens_k: %s, block_tables: %s"
+                "call flash_attn prefill: \n  q shape: %s, \n  k shape: %s, \n  v shape: %s, "
+                "\n  max_seqlen_q: %s, \n  cu_seqlens_q: %s, "
+                "\n  max_seqlen_k: %s, \n  cu_seqlens_k: %s, \n  block_tables: %s"
                 "\nflash_attn out: %s",
                 q.shape,
                 k.shape,
@@ -129,9 +129,9 @@ class Attention(nn.Module):
                 block_table=context.block_tables,
             )
             logger.debug_once(
-                "call flash_attn decode: q shape: %s, k shape: %s, v shape: %s, "
-                "max_seqlen_q: %s, cu_seqlens_q: %s, "
-                "max_seqlen_k: %s, cu_seqlens_k: %s, block_tables: %s"
+                "call flash_attn decode: \n  q shape: %s, \n  k shape: %s, \n  v shape: %s, "
+                "\n  max_seqlen_q: %s, \n  cu_seqlens_q: %s, "
+                "\n  max_seqlen_k: %s, \n  cu_seqlens_k: %s, \n  block_tables: %s"
                 "\nflash_attn out: %s",
                 q_reshape.shape,
                 k_cache.shape,

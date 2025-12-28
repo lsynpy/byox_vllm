@@ -12,6 +12,7 @@ from transformers import Qwen3Config
 from nanovllm.config import Config
 from nanovllm.layers.embed_head import ParallelLMHead, VocabParallelEmbedding
 from nanovllm.layers.layernorm import RMSNorm
+from nanovllm.layers.linear import ReplicatedLinear
 from nanovllm.models.qwen3 import QKVParallelLinear, Qwen3DecoderLayer, Qwen3ForCausalLM
 from nanovllm.utils.logging import get_logger
 
@@ -22,7 +23,6 @@ class Eagle3Qwen3DecoderLayer(Qwen3DecoderLayer):
     def __init__(self, config: Qwen3Config) -> None:
         super().__init__(config)
 
-        # override qkv - note: using config.hidden_size instead of self.hidden_size
         self.self_attn.qkv_proj = QKVParallelLinear(
             2 * config.hidden_size,
             self.self_attn.head_dim,
@@ -43,40 +43,38 @@ class Eagle3Qwen3DecoderLayer(Qwen3DecoderLayer):
         residual = hidden_states
         embeds = self.input_layernorm(embeds)
         hidden_states = self.hidden_norm(hidden_states)
-
         hidden_states = torch.cat([embeds, hidden_states], dim=-1)
-        # Self Attention
+
         hidden_states = self.self_attn(
             positions=positions,
             hidden_states=hidden_states,
         )
 
         hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)
-
-        # Fully Connected
         hidden_states = self.mlp(hidden_states)
-
         return hidden_states, residual
 
 
 class Eagle3Qwen3Model(nn.Module):
     def __init__(self, config: Config) -> None:
         super().__init__()
-        self.config = config.speculative_config.draft_hf_config
-        self.vocab_size = self.config.vocab_size
-        self.embed_tokens = VocabParallelEmbedding(self.config.vocab_size, self.config.hidden_size)
-        self.layers = nn.ModuleList(
-            [Eagle3Qwen3DecoderLayer(self.config) for _ in range(self.config.num_hidden_layers)]
+        self.draft_config = config.speculative_config.draft_hf_config
+        self.vocab_size = self.draft_config.vocab_size
+        self.embed_tokens = VocabParallelEmbedding(
+            self.draft_config.vocab_size, self.draft_config.hidden_size
         )
-        if hasattr(self.config, "target_hidden_size"):
-            self.fc = torch.nn.Linear(
-                self.config.target_hidden_size * 3, self.config.hidden_size, bias=False
-            )
-        else:
-            self.fc = torch.nn.Linear(self.config.hidden_size * 3, self.config.hidden_size, bias=False)
+        self.layers = nn.ModuleList(
+            [
+                Eagle3Qwen3DecoderLayer(self.draft_config)
+                for _ in range(self.draft_config.num_hidden_layers)
+            ]
+        )
+        self.fc = ReplicatedLinear(
+            self.draft_config.hidden_size * 3, self.draft_config.hidden_size, bias=False
+        )
         self.norm = RMSNorm(
-            self.config.hidden_size,
-            eps=self.config.rms_norm_eps,
+            self.draft_config.hidden_size,
+            eps=self.draft_config.rms_norm_eps,
         )
 
     def forward(
@@ -122,12 +120,10 @@ class Eagle3Qwen3ForCausalLM(Qwen3ForCausalLM):
         self,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor | None:
-        # Use greedy sampling - return raw logits from lm_head
         return self.lm_head(hidden_states)
 
     def combine_hidden_states(
         self,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor:
-        # combine multiple auxiliary hidden states returned by eagle3
         return self.model.fc(hidden_states)

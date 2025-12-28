@@ -23,7 +23,6 @@ class Scheduler:
         self.block_manager = BlockManager(config.num_kvcache_blocks, config.kvcache_block_size)
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
-        # self.speculative_config = config.speculative_config
 
     def is_finished(self):
         return not self.waiting and not self.running
@@ -100,7 +99,9 @@ class Scheduler:
             seq.set_draft_tokens(draft_ids)
             seq.prepare_input_ids_and_positions(token_ids, draft_ids)
             # FIXME: may not generate exactly max_tokens tokens
-            if (not seq.ignore_eos and token_ids == self.eos) or seq.num_comupted_tokens >= seq.max_tokens:
+            if (
+                not seq.ignore_eos and token_ids == self.eos
+            ) or seq.num_comupted_tokens >= seq.max_tokens:
                 seq.status = SequenceStatus.FINISHED
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)

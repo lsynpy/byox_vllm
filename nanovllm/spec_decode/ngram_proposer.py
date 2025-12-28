@@ -62,7 +62,6 @@ class NgramProposer:
         # This usually takes less than 1 second.
         self.propose(
             [np.array([])] * 1024,
-            [""] * 1024,
             np.zeros(1024, dtype=np.int32),
             np.zeros((1024, self.max_model_len), dtype=np.int32),
         )
@@ -142,7 +141,6 @@ class NgramProposer:
     def propose(
         self,
         sampled_token_ids: list[np.ndarray],
-        req_ids: list[str],
         num_tokens_no_spec: np.ndarray,
         token_ids_cpu: np.ndarray,
     ) -> list[list[int]]:

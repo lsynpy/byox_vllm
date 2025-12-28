@@ -6,8 +6,8 @@ import torch.distributed as dist
 from transformers import AutoConfig
 
 from nanovllm.config import Config, SpeculativeConfig
-from nanovllm.models.llama_eagle3 import Eagle3Qwen3ForCausalLM
 from nanovllm.models.qwen3 import Qwen3ForCausalLM
+from nanovllm.models.qwen3_eagle3 import Eagle3Qwen3ForCausalLM
 from nanovllm.utils.loader import default_weight_loader, load_model
 
 

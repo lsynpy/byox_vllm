@@ -37,7 +37,9 @@ class ModelRunner:
         self.sampler = Sampler()
         self.num_spec_tokens = 0
         self.enable_spec_decode = False
-        self.drafter: NgramProposer | None = None
+        self.enable_ngram = False
+        self.enable_eagle3 = False
+        self.drafter: NgramProposer | EagleProposer | None = None
         self.rejection_sampler: RejectionSampler | None = None
 
         if self.speculative_config:
@@ -45,8 +47,10 @@ class ModelRunner:
             self.num_spec_tokens = self.speculative_config.num_speculative_tokens
             if self.speculative_config.method == "ngram":
                 self.drafter = NgramProposer(self.config)
+                self.enable_ngram = True
             elif self.speculative_config.method == "eagle3":
                 self.drafter = EagleProposer(self.config, self.device)
+                self.enable_eagle3 = True
             else:
                 raise ValueError(
                     f"Unknown speculative decoding method: {self.speculative_config.method}"
@@ -72,8 +76,10 @@ class ModelRunner:
 
         self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model_path)
-        if self.drafter and isinstance(self.drafter, EagleProposer):
+        if self.enable_eagle3:
             self.drafter.load_model(self.model)
+            aux_layers = self.model.get_eagle3_aux_hidden_state_layers()
+            self.model.set_aux_hidden_state_layers(aux_layers)
 
         # Calculate memory usage after loading the model
         free_memory_after, _ = torch.cuda.mem_get_info()
@@ -108,7 +114,7 @@ class ModelRunner:
     ) -> tuple[list[list[int]], list[list[int]]]:
         input_ids, positions = self._prepare_inputs_context(seqs, decode_type)
 
-        logits = self._execute_model(input_ids, positions)
+        logits, aux_hidden_states = self._execute_model(input_ids, positions)
 
         temperatures = self._prepare_sample(seqs)
 
@@ -117,7 +123,11 @@ class ModelRunner:
         reset_context()
 
         if self.enable_spec_decode:
-            draft_token_ids = self._propose_draft_tokens(seqs)
+            draft_token_ids = self._propose_draft_tokens(
+                seqs,
+                aux_hidden_states,
+                sampled_token_ids,
+            )
         else:
             draft_token_ids = [[] for _ in seqs]
 
@@ -179,32 +189,34 @@ class ModelRunner:
         current = torch.cuda.memory_stats()["allocated_bytes.all.current"]
         num_kv_heads = hf_config.num_key_value_heads // self.world_size
         head_dim = getattr(hf_config, "head_dim", hf_config.hidden_size // hf_config.num_attention_heads)
+        if self.enable_eagle3:
+            num_hidden_layers = (
+                hf_config.num_hidden_layers + config.speculative_config.draft_hf_config.num_hidden_layers
+            )
+        else:
+            num_hidden_layers = hf_config.num_hidden_layers
         block_bytes = (
-            2
-            * hf_config.num_hidden_layers
-            * self.block_size
-            * num_kv_heads
-            * head_dim
-            * hf_config.dtype.itemsize
+            2 * num_hidden_layers * self.block_size * num_kv_heads * head_dim * hf_config.dtype.itemsize
         )
         config.num_kvcache_blocks = (
             int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes
         )
-        assert config.num_kvcache_blocks > 0
+        assert config.num_kvcache_blocks > 0, f"config.num_kvcache_blocks: {config.num_kvcache_blocks}"
         self.kv_cache = torch.empty(
             2,
-            hf_config.num_hidden_layers,
+            num_hidden_layers,
             config.num_kvcache_blocks,
             self.block_size,
             num_kv_heads,
             head_dim,
         )
         logger.info(
-            "allocated %.2f GB, %d blocks, %.2f MB per block, block size: %d",
+            "kvcache allocated %.2f GB, %d blocks, %.2f MB per block, block size: %d, shape: %s",
             self.kv_cache.nbytes / (1024**3),
             config.num_kvcache_blocks,
             self.kv_cache.nbytes / (1024**2) / config.num_kvcache_blocks,
             self.block_size,
+            self.kv_cache.shape,
         )
         layer_id = 0
         for module in self.model.modules():
@@ -212,6 +224,9 @@ class ModelRunner:
                 module.k_cache = self.kv_cache[0, layer_id]
                 module.v_cache = self.kv_cache[1, layer_id]
                 layer_id += 1
+        if self.enable_eagle3:
+            self.drafter.model.model.layers[0].self_attn.attn.k_cache = self.kv_cache[0, layer_id]
+            self.drafter.model.model.layers[0].self_attn.attn.v_cache = self.kv_cache[1, layer_id]
 
     def _prepare_block_tables(self, seqs: list[Sequence]):
         max_len = max(len(seq.block_table) for seq in seqs)
@@ -361,8 +376,17 @@ class ModelRunner:
         return temperatures
 
     @torch.inference_mode()
-    def _execute_model(self, input_ids: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
-        return self.model.compute_logits(self.model(input_ids, positions))
+    def _execute_model(
+        self, input_ids: torch.Tensor, positions: torch.Tensor
+    ) -> tuple[torch.Tensor | None]:
+        if self.enable_eagle3:
+            hidden_states, aux_hidden_states = self.model(input_ids, positions)
+            logits = self.model.compute_logits(hidden_states)
+            return logits, aux_hidden_states
+        else:
+            hidden_states = self.model(input_ids, positions)
+            logits = self.model.compute_logits(hidden_states)
+            return logits, None
 
     @torch.inference_mode()
     def _sample_tokens(
@@ -390,31 +414,61 @@ class ModelRunner:
         return sampled_token_ids
 
     @torch.inference_mode()
-    def _propose_draft_tokens(self, seqs: list[Sequence] = None):
+    def _propose_draft_tokens(
+        self, seqs: list[Sequence], aux_hidden_states: torch.Tensor, sampled_token_ids: list[list[int]]
+    ):
         if not self.enable_spec_decode:
             return []
 
-        token_ids_list = [np.array(seq.token_ids, dtype=np.int32) for seq in seqs]
-        req_ids = [str(seq.seq_id) for seq in seqs]
-        num_tokens_no_spec = np.array([len(seq.token_ids) for seq in seqs], dtype=np.int32)
+        if self.enable_ngram:
+            token_ids_list = [np.array(seq.token_ids, dtype=np.int32) for seq in seqs]
+            num_tokens_no_spec = np.array([len(seq.token_ids) for seq in seqs], dtype=np.int32)
 
-        token_ids_cpu = np.zeros((len(seqs), self.config.max_model_len), dtype=np.int32)
-        for i, seq in enumerate(seqs):
-            token_ids_cpu[i, : len(seq.token_ids)] = seq.token_ids
+            token_ids_cpu = np.zeros((len(seqs), self.config.max_model_len), dtype=np.int32)
+            for i, seq in enumerate(seqs):
+                token_ids_cpu[i, : len(seq.token_ids)] = seq.token_ids
 
-        draft_token_ids_list = self.drafter.propose(
-            sampled_token_ids=token_ids_list,
-            req_ids=req_ids,
-            num_tokens_no_spec=num_tokens_no_spec,
-            token_ids_cpu=token_ids_cpu,
-        )
+            draft_token_ids_list = self.drafter.propose(
+                sampled_token_ids=token_ids_list,
+                num_tokens_no_spec=num_tokens_no_spec,
+                token_ids_cpu=token_ids_cpu,
+            )
+        elif self.enable_eagle3:
+            target_token_ids = torch.cat(
+                [torch.tensor(seq.input_ids, dtype=torch.int32, device=self.device) for seq in seqs]
+            )
+            target_positions = torch.cat(
+                [torch.tensor(seq.positions, dtype=torch.int32, device=self.device) for seq in seqs]
+            )
+            next_token_ids = torch.cat(
+                [torch.tensor(x, dtype=torch.int32, device=self.device) for x in sampled_token_ids]
+            )
+            last_token_indices = self._get_last_token_indices(seqs)
+            draft_token_ids_list = self.drafter.propose(
+                target_token_ids=target_token_ids,
+                target_positions=target_positions,
+                target_hidden_states=aux_hidden_states,
+                next_token_ids=next_token_ids,
+                last_token_indices=last_token_indices,
+            )
+        else:
+            raise ValueError(f"Unknown speculative decoding method: {self.speculative_config.method}")
 
-        # Set the draft tokens in the sequences
         for i, seq in enumerate(seqs):
             seq.set_draft_tokens(draft_token_ids_list[i])
-
-        # Return the proposed draft tokens
         return draft_token_ids_list
+
+    def _get_last_token_indices(self, seqs: list[Sequence]) -> torch.Tensor:
+        last_token_indices = []
+        index = 0
+        for seq in seqs:
+            if seq.spec_token_ids:
+                last_token_indices.append(index)
+                index += len(seq.input_ids)
+            else:
+                index += len(seq.token_ids) - 1
+                last_token_indices.append(index)
+        return torch.tensor(last_token_indices, dtype=torch.int32, device=self.device)
 
     @torch.inference_mode()
     def _capture_cudagraph(self):
