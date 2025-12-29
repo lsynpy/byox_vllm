@@ -114,6 +114,13 @@ class Eagle3Qwen3ForCausalLM(Qwen3ForCausalLM):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        logger.debug("-" * 50)
+        logger.debug(
+            "draft forward inputs:\n  input_ids: %s\n  positions: %s\n  hidden_states: %s",
+            input_ids.tolist(),
+            positions.tolist(),
+            hidden_states.shape,
+        )
         return self.model(input_ids, positions, hidden_states)
 
     def compute_logits(

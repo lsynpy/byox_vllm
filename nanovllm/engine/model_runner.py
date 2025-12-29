@@ -120,7 +120,6 @@ class ModelRunner:
 
         sampled_token_ids = self._sample_tokens(logits, temperatures, seqs)
         logger.debug("sampled token ids: %s", sampled_token_ids)
-        reset_context()
 
         if self.enable_spec_decode:
             draft_token_ids = self._propose_draft_tokens(
@@ -131,6 +130,7 @@ class ModelRunner:
         else:
             draft_token_ids = [[] for _ in seqs]
 
+        reset_context()
         return sampled_token_ids, draft_token_ids
 
     def exit(self):
@@ -380,12 +380,36 @@ class ModelRunner:
         self, input_ids: torch.Tensor, positions: torch.Tensor
     ) -> tuple[torch.Tensor | None]:
         if self.enable_eagle3:
+            logger.debug(
+                "eagle target model forward on:\n  input_ids: %s\n  positions: %s",
+                input_ids.tolist() if input_ids is not None else None,
+                positions.tolist() if positions is not None else None,
+            )
             hidden_states, aux_hidden_states = self.model(input_ids, positions)
-            logits = self.model.compute_logits(hidden_states)
+            logger.debug(
+                "eagle target model forward get:\n  hidden_states: %s\n  aux_hidden_states: %s",
+                hidden_states.shape,
+                aux_hidden_states.shape,
+            )
+            context = get_context()
+            if context.is_prefill:
+                last_indices = context.cu_seqlens_q[1:] - 1
+                sample_hidden_states = hidden_states[last_indices].contiguous()
+            logits = self.model.compute_logits(sample_hidden_states)
             return logits, aux_hidden_states
         else:
+            logger.debug(
+                "model forward on:\n  input_ids: %s\n  positions: %s",
+                input_ids.tolist() if input_ids is not None else None,
+                positions.tolist() if positions is not None else None,
+            )
             hidden_states = self.model(input_ids, positions)
-            logits = self.model.compute_logits(hidden_states)
+            logger.debug("model forward get:\n  hidden_states: %s", hidden_states.shape)
+            context = get_context()
+            if context.is_prefill:
+                last_indices = context.cu_seqlens_q[1:] - 1
+                sample_hidden_states = hidden_states[last_indices].contiguous()
+            logits = self.model.compute_logits(sample_hidden_states)
             return logits, None
 
     @torch.inference_mode()

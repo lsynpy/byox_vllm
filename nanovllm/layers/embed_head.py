@@ -5,7 +5,6 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
 
-from nanovllm.utils.context import get_context
 from nanovllm.utils.logging import get_logger
 
 logger = get_logger(__name__, logging.DEBUG)
@@ -61,11 +60,6 @@ class ParallelLMHead(VocabParallelEmbedding):
         super().__init__(num_embeddings, embedding_dim)
 
     def forward(self, x: torch.Tensor):
-        context = get_context()
-        if context.is_prefill:
-            logger.debug("in prefill mode LMHead, cu_seqlens_q: %s", context.cu_seqlens_q)
-            last_indices = context.cu_seqlens_q[1:] - 1
-            x = x[last_indices].contiguous()
         logits = F.linear(x, self.weight)
         if self.tp_size > 1:
             all_logits = (
