@@ -1,15 +1,14 @@
 import os
 
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["TRITON_INTERPRET"] = "1"
-
+# os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+# os.environ["TRITON_INTERPRET"] = "1"
 from nanovllm.llm import LLM
 from nanovllm.sample.sampling_params import SamplingParams
 from nanovllm.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-NUM_SPEC_TOKENS = 5
+NUM_SPEC_TOKENS = 3
 OUTPUT_LEN = 32
 
 

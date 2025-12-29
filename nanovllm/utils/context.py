@@ -30,7 +30,7 @@ class Context:
 _CONTEXT = Context()
 
 
-def get_context():
+def get_context() -> Context:
     return _CONTEXT
 
 

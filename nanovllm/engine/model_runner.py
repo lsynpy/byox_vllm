@@ -395,6 +395,8 @@ class ModelRunner:
             if context.is_prefill:
                 last_indices = context.cu_seqlens_q[1:] - 1
                 sample_hidden_states = hidden_states[last_indices].contiguous()
+            else:
+                sample_hidden_states = hidden_states
             logits = self.model.compute_logits(sample_hidden_states)
             return logits, aux_hidden_states
         else:
@@ -409,6 +411,8 @@ class ModelRunner:
             if context.is_prefill:
                 last_indices = context.cu_seqlens_q[1:] - 1
                 sample_hidden_states = hidden_states[last_indices].contiguous()
+            else:
+                sample_hidden_states = hidden_states
             logits = self.model.compute_logits(sample_hidden_states)
             return logits, None
 

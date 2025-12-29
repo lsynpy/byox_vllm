@@ -16,7 +16,7 @@ from nanovllm.layers.linear import ReplicatedLinear
 from nanovllm.models.qwen3 import QKVParallelLinear, Qwen3DecoderLayer, Qwen3ForCausalLM
 from nanovllm.utils.logging import get_logger
 
-logger = get_logger(__name__, logging.INFO)
+logger = get_logger(__name__, logging.DEBUG)
 
 
 class Eagle3Qwen3DecoderLayer(Qwen3DecoderLayer):
@@ -83,6 +83,13 @@ class Eagle3Qwen3Model(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        logger.debug("-" * 50)
+        logger.debug(
+            "draft forward inputs:\n  input_ids: %s\n  positions: %s\n  hidden_states: %s",
+            input_ids.tolist(),
+            positions.tolist(),
+            hidden_states.shape,
+        )
         input_embeds = self.embed_tokens(input_ids)
         assert hidden_states.shape[-1] == input_embeds.shape[-1]
 
@@ -94,8 +101,13 @@ class Eagle3Qwen3Model(nn.Module):
             residual,
         )
 
-        hidden_states, hidden_prenorm = self.norm(hidden_states, residual)
-        return hidden_states, hidden_prenorm
+        hidden_states_for_logits, hidden_prenorm = self.norm(hidden_states, residual)
+        logger.debug(
+            "draft forward get:\n  hidden_states_for_logits: %s\n  hidden_prenorm: %s",
+            hidden_states_for_logits.shape,
+            hidden_prenorm.shape,
+        )
+        return hidden_states_for_logits, hidden_prenorm
 
 
 class Eagle3Qwen3ForCausalLM(Qwen3ForCausalLM):
@@ -114,13 +126,6 @@ class Eagle3Qwen3ForCausalLM(Qwen3ForCausalLM):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        logger.debug("-" * 50)
-        logger.debug(
-            "draft forward inputs:\n  input_ids: %s\n  positions: %s\n  hidden_states: %s",
-            input_ids.tolist(),
-            positions.tolist(),
-            hidden_states.shape,
-        )
         return self.model(input_ids, positions, hidden_states)
 
     def compute_logits(

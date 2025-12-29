@@ -94,10 +94,10 @@ class Attention(nn.Module):
                 k.shape,
                 v.shape,
                 context.max_seqlen_q,
-                context.cu_seqlens_q.tolist(),
+                tuple(context.cu_seqlens_q.tolist()),
                 context.max_seqlen_k,
-                context.cu_seqlens_k.tolist(),
-                context.block_tables.tolist() if context.block_tables is not None else None,
+                tuple(context.cu_seqlens_k.tolist()),
+                tuple(context.block_tables.tolist()) if context.block_tables is not None else None,
             )
             o = flash_attn_varlen_func(
                 q,
@@ -111,7 +111,7 @@ class Attention(nn.Module):
                 causal=True,
                 block_table=context.block_tables,
             )
-            logger.debug_once("\nflash_attn out: %s", o.shape)
+            logger.debug_once("flash_attn out: %s", o.shape)
         else:  # decode
             q_reshape = q.view(-1, q.shape[-2], q.shape[-1])  # [total_q_tokens, num_heads, head_dim]
             logger.debug_once(
@@ -139,5 +139,5 @@ class Attention(nn.Module):
                 causal=True,
                 block_table=context.block_tables,
             )
-            logger.debug_once("\nflash_attn out: %s", o.shape)
+            logger.debug_once("flash_attn out: %s", o.shape)
         return o

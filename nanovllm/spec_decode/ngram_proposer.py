@@ -90,7 +90,7 @@ class NgramProposer:
                 A list where each element is a list of proposed
                 token IDs for the corresponding request.
         """
-        draft_token_ids: list[list[int]] = []
+        draft_token_ids_list: list[list[int]] = []
 
         # Only run batch propose if there are requests needing ngram proposals.
         # avoid calling numba function with empty list which causes error
@@ -129,14 +129,14 @@ class NgramProposer:
 
         for i in range(num_requests):
             if i in valid_ngram_requests and self.valid_ngram_num_drafts[i] > 0:
-                draft_token_ids.append(
+                draft_token_ids_list.append(
                     self.valid_ngram_draft[i, : self.valid_ngram_num_drafts[i]].tolist()
                 )
             else:
-                draft_token_ids.append([])
+                draft_token_ids_list.append([])
 
-        logger.info("draft_token_ids: %s", draft_token_ids)
-        return draft_token_ids
+        logger.info("draft_token_ids_list: %s", draft_token_ids_list)
+        return draft_token_ids_list
 
     def propose(
         self,

@@ -10,10 +10,11 @@ import torch.nn as nn
 
 from nanovllm.config import Config
 from nanovllm.models.qwen3_eagle3 import Eagle3Qwen3ForCausalLM
+from nanovllm.utils.context import get_context
 from nanovllm.utils.loader import load_model
 from nanovllm.utils.logging import get_logger
 
-logger = get_logger(__name__, logging.INFO)
+logger = get_logger(__name__, logging.DEBUG)
 
 PADDING_SLOT_ID = -1
 
@@ -59,12 +60,7 @@ class EagleProposer:
         # E.g., [b1, b2, c1, c2, c3, c3] -> [a2, b2, b3, c2, c3, c4]
         input_ids[last_token_indices] = next_token_ids
 
-        logger.debug(
-            "eagle draft model forward on:\n  input_ids: %s\n  positions: %s\n  hidden_states: %s",
-            input_ids.tolist() if input_ids is not None else None,
-            target_positions.tolist() if target_positions is not None else None,
-            target_hidden_states.shape,
-        )
+        # reuse the target context here
         hidden_states_for_logits, hidden_states = self.model(
             input_ids=input_ids,
             positions=target_positions,
@@ -73,45 +69,96 @@ class EagleProposer:
         sample_hidden_states = hidden_states_for_logits[last_token_indices]
         logits = self.model.compute_logits(sample_hidden_states)
         draft_token_ids = logits.argmax(dim=-1)
-        logger.debug(
-            "eagle draft model forward get:\n  hidden_states_for_logits: %s\n  hidden_states: %s"
-            "\n  draft_token_ids: %s",
-            hidden_states_for_logits.shape,
-            hidden_states.shape,
-            draft_token_ids.tolist(),
-        )
+        logger.debug("sampled draft token ids: %s", draft_token_ids.tolist())
 
         # Early exit if there is only one draft token to be generated.
         if self.num_speculative_tokens == 1:
-            # [batch_size, 1]
             return draft_token_ids.view(-1, 1)
 
         # Generate the remaining draft tokens.
         draft_token_ids_list = [draft_token_ids]
-
         positions = target_positions[last_token_indices]
-
         hidden_states_fwd = hidden_states[last_token_indices]
-        for _ in range(self.num_speculative_tokens - 1):
-            # update the inputs
+
+        for idx in range(self.num_speculative_tokens - 1):
             input_ids = draft_token_ids_list[-1]
             positions += 1
-
-            # update context
-
-            # Run the model.
-            hidden_states_for_logits, hidden_states = self.model(
+            self._update_context()
+            hidden_states_for_logits, hidden_states_fwd = self.model(
                 input_ids=input_ids,
                 hidden_states=hidden_states_fwd,
-                positions=target_positions,
+                positions=positions,
             )
             logits = self.model.compute_logits(hidden_states_for_logits)
             draft_token_ids = logits.argmax(dim=-1)
             draft_token_ids_list.append(draft_token_ids)
+            logger.debug(
+                "draft forward %d. sampled draft_token_ids: %s",
+                idx,
+                draft_token_ids.tolist(),
+            )
 
-        # [batch_size, num_speculative_tokens]
+        logger.debug("-" * 50)
         draft_token_ids = torch.stack(draft_token_ids_list, dim=1)
-        return draft_token_ids
+        draft_token_ids_list = draft_token_ids.tolist()
+        logger.info("draft_token_ids_list: %s", draft_token_ids_list)
+        return draft_token_ids_list
+
+    def _update_context(self):
+        context = get_context()
+
+        num_sequences = context.cu_seqlens_k.shape[0] - 1
+
+        if num_sequences > 0:
+            # Extract the last slot for each sequence and add 1 to get the next slot
+            # Do this BEFORE updating cu_seqlens_k since we need the original values
+            new_slots_list = []
+            for i in range(num_sequences):
+                seq_start_idx = context.cu_seqlens_k[i].item()
+                seq_end_idx = context.cu_seqlens_k[i + 1].item()
+                if seq_start_idx < seq_end_idx and seq_end_idx <= context.slot_mapping.shape[0]:
+                    last_slot = context.slot_mapping[seq_end_idx - 1]
+                    new_slots_list.append(last_slot + 1)
+
+            # For speculative decoding, we're generating one token per sequence
+            cu_seqlens_q = torch.arange(
+                num_sequences + 1, dtype=torch.int32, device=context.cu_seqlens_q.device
+            )
+            cu_seqlens_k = torch.arange(
+                num_sequences + 1, dtype=torch.int32, device=context.cu_seqlens_k.device
+            )
+
+            max_seqlen_q = 1
+            max_seqlen_k = 1
+
+            context.cu_seqlens_q = cu_seqlens_q
+            context.cu_seqlens_k = cu_seqlens_k
+            context.max_seqlen_q = max_seqlen_q
+            context.max_seqlen_k = max_seqlen_k
+
+            if new_slots_list:
+                new_slots = torch.tensor(
+                    new_slots_list, dtype=torch.int32, device=context.slot_mapping.device
+                )
+                context.slot_mapping = new_slots
+            else:
+                new_slots = context.slot_mapping + 1
+                context.slot_mapping = new_slots
+
+            if context.context_lens is not None:
+                context.context_lens = context.context_lens + 1
+            else:
+                context.context_lens = torch.ones(
+                    num_sequences, dtype=torch.int32, device=context.cu_seqlens_q.device
+                )
+
+            if context.block_tables is not None:
+                pass
+            else:
+                num_blocks_needed = num_sequences
+                context.block_tables = torch.zeros(
+                    (num_blocks_needed, 1), dtype=torch.int32, device=context.cu_seqlens_q.device
+                )
 
     def load_model(self, target_model: nn.Module) -> None:
         self.model = Eagle3Qwen3ForCausalLM(self.config)
