@@ -1,10 +1,11 @@
 import os
 
-# os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-# os.environ["TRITON_INTERPRET"] = "1"
 from nanovllm.llm import LLM
 from nanovllm.sample.sampling_params import SamplingParams
 from nanovllm.utils.logging import get_logger
+
+# os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+# os.environ["TRITON_INTERPRET"] = "1"
 
 logger = get_logger(__name__)
 
@@ -18,9 +19,9 @@ def main():
 
     prompts = [
         "List the first ten prime numbers:",
-        "The capital of France is",
-        "Once upon a time in a land far, far away,",
-        "List 10 numbers only contains digit 1:",
+        # "The capital of France is",
+        # "Once upon a time in a land far, far away,",
+        # "List 10 numbers only contains digit 1:",
     ]
     speculative_config = {
         "method": "eagle3",

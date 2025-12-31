@@ -5,23 +5,25 @@ import threading
 from collections.abc import Hashable
 from typing import Any
 
+import torch
+
+# _FORMAT = "%(levelname)s %(asctime)s [%(filename)s:%(lineno)d] %(message)s"
+_FORMAT = "%(message)s"
+
 
 def make_hashable(obj: Any) -> Hashable:
-    # Handle PyTorch tensors by converting to string representations of their shape and dtype
     if "torch" in sys.modules:
         import torch
 
         if isinstance(obj, torch.Tensor):
             return ("torch.Tensor", tuple(obj.shape), str(obj.dtype), obj.device.type)
 
-    if isinstance(obj, list):
+    if isinstance(obj, (list, tuple)):
         return tuple(make_hashable(item) for item in obj)
     elif isinstance(obj, dict):
         return tuple(sorted((k, make_hashable(v)) for k, v in obj.items()))
     elif isinstance(obj, set):
         return frozenset(make_hashable(item) for item in obj)
-    elif isinstance(obj, (tuple, frozenset)):
-        return tuple(make_hashable(item) for item in obj)
     else:
         return obj
 
@@ -35,8 +37,8 @@ def _get_correct_caller_info(skip_files=None):
         skip_files = {"logging.py", "logger.py", "<string>", "torch/nn/modules/module.py"}
 
     frame = inspect.currentframe()
-    # Go back two frames to skip _get_correct_caller_info and the calling logging method
-    frame = frame.f_back.f_back if frame and frame.f_back else None
+    if frame and frame.f_back:
+        frame = frame.f_back.f_back
 
     while frame:
         filename = frame.f_code.co_filename.split("/")[-1]
@@ -44,7 +46,6 @@ def _get_correct_caller_info(skip_files=None):
             return frame.f_lineno, frame.f_code.co_filename
         frame = frame.f_back
 
-    # If we can't find an appropriate frame, fall back to stacklevel
     return None, None
 
 
@@ -66,14 +67,6 @@ def _log_once(level: int, logger_name: str, msg: str, *args) -> None:
         logger.log(level, msg, *args, stacklevel=2)
 
 
-def debug_once(logger: logging.Logger, msg: str, *args, **kwargs):
-    _log_once(logging.DEBUG, logger.name, msg, *args)
-
-
-def info_once(logger: logging.Logger, msg: str, *args, **kwargs):
-    _log_once(logging.INFO, logger.name, msg, *args)
-
-
 def set_default_log_level(level: int):
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
@@ -84,74 +77,14 @@ def set_default_log_level(level: int):
 class LoggerWithOnceMethods:
     def __init__(self, logger: logging.Logger):
         self._logger = logger
+        self.debug_once = lambda msg, *args, **kwargs: _log_once(
+            logging.DEBUG, self._logger.name, msg, *args
+        )
+        self.info_once = lambda msg, *args, **kwargs: _log_once(
+            logging.INFO, self._logger.name, msg, *args
+        )
 
-    def debug_once(self, msg: str, *args, **kwargs):
-        _log_once(logging.DEBUG, self._logger.name, msg, *args)
-
-    def info_once(self, msg: str, *args, **kwargs):
-        _log_once(logging.INFO, self._logger.name, msg, *args)
-
-    def debug(self, msg: str, *args, **kwargs):
-        if self._logger.isEnabledFor(logging.DEBUG):
-            lineno, filename = _get_correct_caller_info()
-            if lineno is not None and filename is not None:
-                record = self._logger.makeRecord(
-                    self._logger.name, logging.DEBUG, filename, lineno, msg, args, None
-                )
-                return self._logger.handle(record)
-        return self._logger.debug(msg, *args, stacklevel=2, **kwargs)
-
-    def info(self, msg: str, *args, **kwargs):
-        if self._logger.isEnabledFor(logging.INFO):
-            lineno, filename = _get_correct_caller_info()
-            if lineno is not None and filename is not None:
-                record = self._logger.makeRecord(
-                    self._logger.name, logging.INFO, filename, lineno, msg, args, None
-                )
-                return self._logger.handle(record)
-        return self._logger.info(msg, *args, stacklevel=2, **kwargs)
-
-    def warning(self, msg: str, *args, **kwargs):
-        if self._logger.isEnabledFor(logging.WARNING):
-            lineno, filename = _get_correct_caller_info()
-            if lineno is not None and filename is not None:
-                record = self._logger.makeRecord(
-                    self._logger.name, logging.WARNING, filename, lineno, msg, args, None
-                )
-                return self._logger.handle(record)
-        return self._logger.warning(msg, *args, stacklevel=2, **kwargs)
-
-    def warn(self, msg: str, *args, **kwargs):
-        if self._logger.isEnabledFor(logging.WARNING):
-            lineno, filename = _get_correct_caller_info()
-            if lineno is not None and filename is not None:
-                record = self._logger.makeRecord(
-                    self._logger.name, logging.WARNING, filename, lineno, msg, args, None
-                )
-                return self._logger.handle(record)
-        return self._logger.warning(msg, *args, stacklevel=2, **kwargs)
-
-    def error(self, msg: str, *args, **kwargs):
-        if self._logger.isEnabledFor(logging.ERROR):
-            lineno, filename = _get_correct_caller_info()
-            if lineno is not None and filename is not None:
-                record = self._logger.makeRecord(
-                    self._logger.name, logging.ERROR, filename, lineno, msg, args, None
-                )
-                return self._logger.handle(record)
-        return self._logger.error(msg, *args, stacklevel=2, **kwargs)
-
-    def critical(self, msg: str, *args, **kwargs):
-        if self._logger.isEnabledFor(logging.CRITICAL):
-            lineno, filename = _get_correct_caller_info()
-            if lineno is not None and filename is not None:
-                record = self._logger.makeRecord(
-                    self._logger.name, logging.CRITICAL, filename, lineno, msg, args, None
-                )
-                return self._logger.handle(record)
-        return self._logger.critical(msg, *args, stacklevel=2, **kwargs)
-
-    def log(self, level: int, msg: str, *args, **kwargs):
+    def _log_with_location(self, level: int, msg: str, *args, **kwargs):
         if self._logger.isEnabledFor(level):
             lineno, filename = _get_correct_caller_info()
             if lineno is not None and filename is not None:
@@ -160,6 +93,18 @@ class LoggerWithOnceMethods:
                 )
                 return self._logger.handle(record)
         return self._logger.log(level, msg, *args, stacklevel=2, **kwargs)
+
+    def debug(self, msg: str, *args, **kwargs):
+        return self._log_with_location(logging.DEBUG, msg, *args, **kwargs)
+
+    def info(self, msg: str, *args, **kwargs):
+        return self._log_with_location(logging.INFO, msg, *args, **kwargs)
+
+    def error(self, msg: str, *args, **kwargs):
+        return self._log_with_location(logging.ERROR, msg, *args, **kwargs)
+
+    def log(self, level: int, msg: str, *args, **kwargs):
+        return self._log_with_location(level, msg, *args, **kwargs)
 
     def exception(self, msg: str, *args, **kwargs):
         return self._logger.exception(msg, *args, **kwargs)
@@ -189,18 +134,55 @@ class LoggerWithOnceMethods:
         return self._logger.disabled
 
 
-def get_logger(name: str, level: int = logging.INFO, use_color: bool = True) -> LoggerWithOnceMethods:
+class ColoredFileNameLineFormatter(logging.Formatter):
+    # ANSI color codes
+    COLORS = {
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "ERROR": "\033[31m",  # Red
+    }
+    RESET = "\033[0m"  # Reset to default
+
+    def format(self, record):
+        levelname = record.levelname
+        colored_levelname = self.COLORS.get(levelname, "") + levelname + self.RESET
+        record.levelname = colored_levelname
+
+        formatter = logging.Formatter(fmt=_FORMAT, datefmt="%H:%M:%S")
+        msg = formatter.format(record)
+
+        if "\n" in msg:
+            prefix_end = msg.find(record.getMessage()) if record.getMessage() else msg.rfind("]") + 1
+            if prefix_end != -1:
+                prefix = msg[:prefix_end]
+                message_lines = msg[prefix_end:].split("\n")
+                aligned_msg = (
+                    prefix
+                    + message_lines[0]
+                    + "".join(f"\n{prefix}{line}" for line in message_lines[1:])
+                )
+                msg = aligned_msg
+
+        record.levelname = levelname
+        return msg
+
+
+# Global counter for tensor saving
+_tensor_save_counter = 0
+
+
+def save_tensor(tensor, filename_prefix: str = "tensor"):
+    global _tensor_save_counter
+    _tensor_save_counter += 1
+    filename = f"{_tensor_save_counter}_{filename_prefix}.pt"
+    torch.save(tensor, filename)
+
+
+def get_logger(name: str, level: int = logging.INFO) -> LoggerWithOnceMethods:
     if not logging.getLogger().handlers:
         handler = logging.StreamHandler(sys.stdout)
 
-        if use_color:
-            formatter = ColoredCombinedFormatter(
-                fmt="%(asctime)s - %(combined_info)-21s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
-            )
-        else:
-            formatter = CombinedFormatter(
-                fmt="%(asctime)s - %(combined_info)-21s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
-            )
+        formatter = ColoredFileNameLineFormatter()
 
         handler.setFormatter(formatter)
 
@@ -212,36 +194,3 @@ def get_logger(name: str, level: int = logging.INFO, use_color: bool = True) -> 
 
     logger.setLevel(level)
     return LoggerWithOnceMethods(logger)
-
-
-class CombinedFormatter(logging.Formatter):
-    def format(self, record):
-        combined = f"{record.filename}:{record.lineno}"
-        record.combined_info = f"{combined:<20}"
-        return super().format(record)
-
-
-class ColoredCombinedFormatter(CombinedFormatter):
-    COLORS = {
-        "DEBUG": "\033[36m",  # Cyan
-        "INFO": "\033[32m",  # Green
-        "WARNING": "\033[33m",  # Yellow
-        "ERROR": "\033[31m",  # Red
-        "CRITICAL": "\033[35m",  # Magenta
-        "RESET": "\033[0m",  # Reset to default
-    }
-
-    def format(self, record):
-        combined = f"{record.filename}:{record.lineno}"
-        record.combined_info = f"{combined:<20}"
-
-        level_color = self.COLORS.get(record.levelname, self.COLORS["RESET"])
-        reset_color = self.COLORS["RESET"]
-        colored_levelname = f"{level_color}{record.levelname:<5}{reset_color}"
-
-        original_levelname = record.levelname
-        record.levelname = colored_levelname
-        formatted_message = super().format(record)
-        record.levelname = original_levelname
-
-        return formatted_message

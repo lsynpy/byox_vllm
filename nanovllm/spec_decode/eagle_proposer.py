@@ -43,7 +43,7 @@ class EagleProposer:
     ) -> torch.Tensor:
         logger.debug(
             "propose inputs: \n  target_token_ids: %s \n  target_positions: %s"
-            "\n  target_hidden_states: %s \n  next_token_ids: %s \n last_token_indices: %s",
+            "\n  target_hidden_states: %s \n  next_token_ids: %s \n  last_token_indices: %s",
             target_token_ids.tolist(),
             target_positions.tolist(),
             target_hidden_states.shape,
@@ -51,7 +51,7 @@ class EagleProposer:
             last_token_indices.tolist(),
         )
         # batch_size = next_token_ids.shape[0]
-        target_hidden_states = self.model.combine_hidden_states(target_hidden_states)
+        hidden_states_fwd = self.model.combine_hidden_states(target_hidden_states)
         input_ids = torch.empty_like(target_token_ids)
         # Shift the input ids by one token.
         # E.g., [a1, b1, b2, c1, c2, c3] -> [b1, b2, c1, c2, c3, c3]
@@ -64,12 +64,13 @@ class EagleProposer:
         hidden_states_for_logits, hidden_states = self.model(
             input_ids=input_ids,
             positions=target_positions,
-            hidden_states=target_hidden_states,
+            hidden_states=hidden_states_fwd,
         )
+
         sample_hidden_states = hidden_states_for_logits[last_token_indices]
         logits = self.model.compute_logits(sample_hidden_states)
         draft_token_ids = logits.argmax(dim=-1)
-        logger.debug("sampled draft token ids: %s", draft_token_ids.tolist())
+        logger.debug("draft forward. sampled draft token ids: %s", draft_token_ids.tolist())
 
         # Early exit if there is only one draft token to be generated.
         if self.num_speculative_tokens == 1:
@@ -83,12 +84,13 @@ class EagleProposer:
         for idx in range(self.num_speculative_tokens - 1):
             input_ids = draft_token_ids_list[-1]
             positions += 1
-            self._update_context()
+            self.prepare_context()
             hidden_states_for_logits, hidden_states_fwd = self.model(
                 input_ids=input_ids,
                 hidden_states=hidden_states_fwd,
                 positions=positions,
             )
+
             logits = self.model.compute_logits(hidden_states_for_logits)
             draft_token_ids = logits.argmax(dim=-1)
             draft_token_ids_list.append(draft_token_ids)
@@ -104,7 +106,10 @@ class EagleProposer:
         logger.info("draft_token_ids_list: %s", draft_token_ids_list)
         return draft_token_ids_list
 
-    def _update_context(self):
+    def prepare_inputs(self):
+        pass
+
+    def prepare_context(self):
         context = get_context()
 
         num_sequences = context.cu_seqlens_k.shape[0] - 1

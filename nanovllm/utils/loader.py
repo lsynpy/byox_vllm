@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import Iterable
 from glob import glob
@@ -7,6 +8,9 @@ from safetensors import safe_open
 from torch import nn
 
 from nanovllm.models.qwen3_eagle3 import Eagle3Qwen3ForCausalLM
+from nanovllm.utils.logging import get_logger
+
+logger = get_logger(__name__, logging.DEBUG)
 
 
 def default_weight_loader(param: nn.Parameter, loaded_weight: torch.Tensor):
@@ -52,18 +56,54 @@ def load_eagle3_model_weights(model: nn.Module, weights: Iterable[tuple[str, tor
     params_dict = dict(model.named_parameters())
     loaded_params: set[str] = set()
 
+    packed_modules_mapping = {
+        "q_proj": ("qkv_proj", "q"),
+        "k_proj": ("qkv_proj", "k"),
+        "v_proj": ("qkv_proj", "v"),
+        "gate_proj": ("gate_up_proj", 0),
+        "up_proj": ("gate_up_proj", 1),
+    }
+
     for name, loaded_weight in weights:
         if "t2d" in name:
             continue
-        if "d2t" in name:
-            name = name.replace("d2t", "draft_id_to_target_id")
-        elif "lm_head" not in name:
-            name = "model." + name
 
-        if name in params_dict:
-            param = params_dict[name]
+        is_packed_module = False
+        param_name = None
+        shard_id = None
+
+        for k, (v, sid) in packed_modules_mapping.items():
+            if k in name:
+                param_name = name.replace(k, v)
+                shard_id = sid
+                is_packed_module = True
+                break
+
+        if not is_packed_module:
+            if "lm_head" in name:
+                if name in params_dict:
+                    param_name = name
+            else:
+                if name in params_dict:
+                    param_name = name
+                elif ("model." + name) in params_dict:
+                    param_name = "model." + name
+
+        if is_packed_module:
+            if not param_name.startswith("model."):
+                param_name = "model." + param_name
+            if not param_name.endswith(".weight"):
+                param_name = param_name + ".weight"
+
+        if param_name and param_name in params_dict:
+            param = params_dict[param_name]
+
             weight_loader = getattr(param, "weight_loader", default_weight_loader)
-            weight_loader(param, loaded_weight)
-            loaded_params.add(name)
+            if is_packed_module:
+                weight_loader(param, loaded_weight, shard_id)
+            else:
+                weight_loader(param, loaded_weight)
+
+            loaded_params.add(param_name)
 
     return loaded_params

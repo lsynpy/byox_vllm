@@ -63,12 +63,7 @@ class Eagle3Qwen3Model(nn.Module):
         self.embed_tokens = VocabParallelEmbedding(
             self.draft_config.vocab_size, self.draft_config.hidden_size
         )
-        self.layers = nn.ModuleList(
-            [
-                Eagle3Qwen3DecoderLayer(self.draft_config)
-                for _ in range(self.draft_config.num_hidden_layers)
-            ]
-        )
+        self.midlayer = Eagle3Qwen3DecoderLayer(self.draft_config)
         self.fc = ReplicatedLinear(
             self.draft_config.hidden_size * 3, self.draft_config.hidden_size, bias=False
         )
@@ -94,7 +89,7 @@ class Eagle3Qwen3Model(nn.Module):
         assert hidden_states.shape[-1] == input_embeds.shape[-1]
 
         residual = None
-        hidden_states, residual = self.layers[0](
+        hidden_states, residual = self.midlayer(
             positions,
             input_embeds,
             hidden_states,
@@ -114,10 +109,15 @@ class Eagle3Qwen3ForCausalLM(Qwen3ForCausalLM):
     def __init__(self, config: Config):
         nn.Module.__init__(self)
         self.draft_config = config.speculative_config.draft_hf_config
+        self.target_config = config.hf_config
         self.model = Eagle3Qwen3Model(config=config)
         self.lm_head = ParallelLMHead(
             self.draft_config.draft_vocab_size,
             self.draft_config.hidden_size,
+        )
+        self.d2t = nn.Parameter(
+            torch.zeros(self.draft_config.draft_vocab_size, dtype=torch.long),
+            requires_grad=False,
         )
 
     def forward(
@@ -132,7 +132,18 @@ class Eagle3Qwen3ForCausalLM(Qwen3ForCausalLM):
         self,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor | None:
-        return self.lm_head(hidden_states)
+        logits = self.lm_head(hidden_states)
+        base = torch.arange(self.draft_config.draft_vocab_size, device=logits.device)
+        targets = base + self.d2t
+        logits_new = logits.new_full(
+            (
+                logits.shape[0],
+                self.target_config.vocab_size,
+            ),
+            float("-inf"),
+        )
+        logits_new[:, targets] = logits
+        return logits_new
 
     def combine_hidden_states(
         self,

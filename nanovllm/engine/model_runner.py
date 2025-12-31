@@ -225,8 +225,8 @@ class ModelRunner:
                 module.v_cache = self.kv_cache[1, layer_id]
                 layer_id += 1
         if self.enable_eagle3:
-            self.drafter.model.model.layers[0].self_attn.attn.k_cache = self.kv_cache[0, layer_id]
-            self.drafter.model.model.layers[0].self_attn.attn.v_cache = self.kv_cache[1, layer_id]
+            self.drafter.model.model.midlayer.self_attn.attn.k_cache = self.kv_cache[0, layer_id]
+            self.drafter.model.model.midlayer.self_attn.attn.v_cache = self.kv_cache[1, layer_id]
 
     def _prepare_block_tables(self, seqs: list[Sequence]):
         max_len = max(len(seq.block_table) for seq in seqs)
@@ -494,8 +494,8 @@ class ModelRunner:
                 last_token_indices.append(index)
                 index += len(seq.input_ids)
             else:
-                index += len(seq.token_ids) - 1
-                last_token_indices.append(index)
+                index += len(seq.token_ids)
+                last_token_indices.append(index - 1)
         return torch.tensor(last_token_indices, dtype=torch.int32, device=self.device)
 
     @torch.inference_mode()

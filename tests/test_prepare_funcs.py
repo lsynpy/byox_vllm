@@ -140,7 +140,9 @@ def test_prepare_decode_multiple_sequences():
         context.block_tables.cpu(), torch.tensor([[0], [1]], dtype=torch.int32)
     )  # Actual block tables
     assert torch.equal(input_ids.cpu(), torch.tensor([3, 7], dtype=torch.int64))  # Next tokens to decode
-    assert torch.equal(positions.cpu(), torch.tensor([2, 3], dtype=torch.int64))  # Positions of next tokens
+    assert torch.equal(
+        positions.cpu(), torch.tensor([2, 3], dtype=torch.int64)
+    )  # Positions of next tokens
     reset_context()
 
 
@@ -167,7 +169,9 @@ def test_prepare_prefill_multiple_with_cached_tokens():
     assert torch.equal(
         input_ids.cpu(), torch.tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], dtype=torch.int64)
     )
-    assert torch.equal(positions.cpu(), torch.tensor([0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5], dtype=torch.int64))
+    assert torch.equal(
+        positions.cpu(), torch.tensor([0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5], dtype=torch.int64)
+    )
     reset_context()
 
 
@@ -235,7 +239,9 @@ def test_prepare_decode_multiple_with_cached_tokens():
         context.block_tables.cpu(), torch.tensor([[0], [1]], dtype=torch.int32)
     )  # Actual block tables
     assert torch.equal(input_ids.cpu(), torch.tensor([4, 9], dtype=torch.int64))  # Next tokens to decode
-    assert torch.equal(positions.cpu(), torch.tensor([3, 4], dtype=torch.int64))  # Positions of next tokens
+    assert torch.equal(
+        positions.cpu(), torch.tensor([3, 4], dtype=torch.int64)
+    )  # Positions of next tokens
     reset_context()
 
 
