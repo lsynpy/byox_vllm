@@ -82,7 +82,7 @@ class Attention(nn.Module):
                 v_cache.shape,
                 context.slot_mapping.tolist(),
             )
-            store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
+            store_kvcache(k, v, k_cache, v_cache, context.slot_mapping[: k.shape[0]])
         if context.is_prefill:
             if context.block_tables is not None:  # warmup has no kv cache
                 k, v = k_cache, v_cache

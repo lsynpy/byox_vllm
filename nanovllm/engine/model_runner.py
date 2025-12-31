@@ -468,10 +468,10 @@ class ModelRunner:
             target_positions = torch.cat(
                 [torch.tensor(seq.positions, dtype=torch.int32, device=self.device) for seq in seqs]
             )
-            next_token_ids = torch.cat(
-                [torch.tensor(x, dtype=torch.int32, device=self.device) for x in sampled_token_ids]
+            next_token_ids = torch.tensor(
+                [x[-1] for x in sampled_token_ids], dtype=torch.int32, device=self.device
             )
-            last_token_indices = self._get_last_token_indices(seqs)
+            last_token_indices = self._get_last_token_indices(seqs, sampled_token_ids)
             draft_token_ids_list = self.drafter.propose(
                 target_token_ids=target_token_ids,
                 target_positions=target_positions,
@@ -486,13 +486,15 @@ class ModelRunner:
             seq.set_draft_tokens(draft_token_ids_list[i])
         return draft_token_ids_list
 
-    def _get_last_token_indices(self, seqs: list[Sequence]) -> torch.Tensor:
+    def _get_last_token_indices(
+        self, seqs: list[Sequence], sampled_token_ids: list[list[int]]
+    ) -> torch.Tensor:
         last_token_indices = []
         index = 0
-        for seq in seqs:
+        for i, seq in enumerate(seqs):
             if seq.spec_token_ids:
                 last_token_indices.append(index)
-                index += len(seq.input_ids)
+                index += len(seq.input_ids) + len(sampled_token_ids[i]) - 1
             else:
                 index += len(seq.token_ids)
                 last_token_indices.append(index - 1)

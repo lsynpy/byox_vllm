@@ -91,7 +91,7 @@ class LLMEngine:
         self.scheduler.add(seq)
 
     def _step(self):
-        logger.info("->" * 50)
+        logger.info("->" * 40)
         seqs, decode_type = self.scheduler.schedule()
         if not seqs:
             outputs = []
@@ -100,7 +100,7 @@ class LLMEngine:
         sampled_token_ids, draft_token_ids = self.model_runner.call("run", seqs, decode_type)
         self.scheduler.postprocess(seqs, sampled_token_ids, draft_token_ids)
         outputs = [(seq.seq_id, seq.computed_token_ids) for seq in seqs if seq.is_finished]
-        logger.info("<-" * 50)
+        logger.info("<-" * 40)
         return outputs, sum([seq.num_comupted_tokens for seq in seqs])
 
     def _is_finished(self):

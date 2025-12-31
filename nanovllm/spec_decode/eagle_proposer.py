@@ -52,7 +52,7 @@ class EagleProposer:
         )
         # batch_size = next_token_ids.shape[0]
         hidden_states_fwd = self.model.combine_hidden_states(target_hidden_states)
-        input_ids = torch.empty_like(target_token_ids)
+        input_ids = torch.zeros_like(target_token_ids)
         # Shift the input ids by one token.
         # E.g., [a1, b1, b2, c1, c2, c3] -> [b1, b2, c1, c2, c3, c3]
         input_ids[:-1] = target_token_ids[1:]
