@@ -1,36 +1,42 @@
 # SPDX-License-Identifier: Apache-2.0
+import logging
 
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
 
+from nanovllm.utils.logging import get_logger
+
 INVALID_TOKEN_ID = -1
+logger = get_logger(__name__, logging.DEBUG)
 
 
 class RejectionSampler(nn.Module):
-    def forward(self, logits: torch.Tensor, spec_token_ids: list[list[int]]) -> list[int]:
-        return RejectionSampler.greedy_sample_native(logits, spec_token_ids)
+    def forward(self, logits: torch.Tensor, draft_token_ids: list[list[int]]) -> list[int]:
+        return RejectionSampler.greedy_sample_native(logits, draft_token_ids)
 
     @staticmethod
-    def greedy_sample_native(logits: torch.Tensor, spec_token_ids: list[list[int]]) -> list[int]:
-        spec_lens: list[int] = [len(x) for x in spec_token_ids]
+    def greedy_sample_native(logits: torch.Tensor, draft_token_ids: list[list[int]]) -> list[int]:
+        spec_lens: list[int] = [len(x) for x in draft_token_ids]
         # Add 1 to include the 'bonus' token.
         sample_lens: list[int] = [x + 1 for x in spec_lens]
 
         output_token_ids: torch.Tensor = logits.argmax(dim=-1).view(-1)
         output_token_ids = output_token_ids.split(sample_lens)
-        output_token_ids = pad_sequence(output_token_ids, batch_first=True, padding_value=INVALID_TOKEN_ID)
+        output_token_ids = pad_sequence(
+            output_token_ids, batch_first=True, padding_value=INVALID_TOKEN_ID
+        )
 
         # Convert spec token IDs to a tensor, split by sample_lens, then pad.
-        spec_token_ids: list[torch.Tensor] = [
+        draft_token_ids: list[torch.Tensor] = [
             torch.tensor(x, dtype=output_token_ids.dtype, device=output_token_ids.device)
-            for x in spec_token_ids
+            for x in draft_token_ids
         ]
-        spec_token_ids = pad_sequence(spec_token_ids, batch_first=True, padding_value=INVALID_TOKEN_ID)
+        draft_token_ids = pad_sequence(draft_token_ids, batch_first=True, padding_value=INVALID_TOKEN_ID)
 
         # Produce a mask that remains 1 (True) until the first
         # mismatch (cumprod turns 0 after a mismatch).
-        accept_mask = (output_token_ids[:, :-1] == spec_token_ids).cumprod(dim=1)
+        accept_mask = (output_token_ids[:, :-1] == draft_token_ids).cumprod(dim=1)
         # Identify valid positions (non-padding).
         valid_mask = output_token_ids != INVALID_TOKEN_ID
         # Generate mask with bonus token.
@@ -51,4 +57,9 @@ class RejectionSampler(nn.Module):
 
         output_token_ids = output_token_ids.tolist()
         output_token_ids = [[token_id for token_id in lst if token_id != -1] for lst in output_token_ids]
+        logger.info(
+            "rejection sampling: draft_token_ids: %s, output_token_ids: %s",
+            draft_token_ids,
+            output_token_ids,
+        )
         return output_token_ids

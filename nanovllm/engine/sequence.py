@@ -95,7 +95,7 @@ class Sequence:
 
     def prepare_input_ids_and_positions(self, token_ids: list[int], draft_token_ids: list[int]):
         self.input_ids = token_ids[-1:]
-        start_pos = len(self.token_ids)
+        start_pos = len(self.token_ids) - 1
         self.positions = [start_pos]
 
         if draft_token_ids:

@@ -11,12 +11,12 @@ def main():
     path = os.path.expanduser("~/huggingface/Qwen3-0.6B/")
     llm = LLM(path, enforce_eager=True, gpu_memory_utilization=0.3)
 
-    sampling_params = SamplingParams(temperature=0.0, max_tokens=32)
+    sampling_params = SamplingParams(temperature=0.0, max_tokens=8)
     prompts = [
         "List the first ten prime numbers:",
-        "The capital of France is",
-        "Once upon a time in a land far, far away,",
-        "List 10 numbers only contains digit 1:",
+        # "The capital of France is",
+        # "Once upon a time in a land far, far away,",
+        # "List 10 numbers only contains digit 1:",
     ]
     outputs = llm.generate(prompts, sampling_params, use_tqdm=False)
 

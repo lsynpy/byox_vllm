@@ -436,7 +436,7 @@ class ModelRunner:
 
         sampled_token_ids = self.rejection_sampler(
             logits=logits,
-            spec_token_ids=draft_tokens,
+            draft_token_ids=draft_tokens,
         )
 
         return sampled_token_ids
