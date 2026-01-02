@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from enum import Enum, auto
 
@@ -6,7 +7,7 @@ from nanovllm.engine.block_manager import BlockManager
 from nanovllm.engine.sequence import Sequence, SequenceStatus
 from nanovllm.utils.logging import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, logging.INFO)
 
 
 class DecodeType(Enum):
@@ -59,7 +60,7 @@ class Scheduler:
             logger.debug("append %s to running: %s", seq, self.running)
             scheduled_seqs.append(seq)
         if scheduled_seqs:
-            logger.debug("%s Scheduled %s done", DecodeType.PREFILL, scheduled_seqs)
+            logger.info("%s Scheduled %s done", DecodeType.PREFILL, scheduled_seqs)
             return scheduled_seqs, DecodeType.PREFILL
 
         # decode

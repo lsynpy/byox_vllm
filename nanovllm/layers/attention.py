@@ -86,19 +86,19 @@ class Attention(nn.Module):
         if context.is_prefill:
             if context.block_tables is not None:  # warmup has no kv cache
                 k, v = k_cache, v_cache
-            logger.debug_once(
-                "call flash_attn prefill: \n  q shape: %s, \n  k shape: %s, \n  v shape: %s, "
-                "\n  max_seqlen_q: %s, \n  cu_seqlens_q: %s, "
-                "\n  max_seqlen_k: %s, \n  cu_seqlens_k: %s, \n  block_tables: %s",
-                q.shape,
-                k.shape,
-                v.shape,
-                context.max_seqlen_q,
-                tuple(context.cu_seqlens_q.tolist()),
-                context.max_seqlen_k,
-                tuple(context.cu_seqlens_k.tolist()),
-                tuple(context.block_tables.tolist()) if context.block_tables is not None else None,
-            )
+            # logger.debug_once(
+            #     "call flash_attn prefill: \n  q shape: %s, \n  k shape: %s, \n  v shape: %s, "
+            #     "\n  max_seqlen_q: %s, \n  cu_seqlens_q: %s, "
+            #     "\n  max_seqlen_k: %s, \n  cu_seqlens_k: %s, \n  block_tables: %s",
+            #     q.shape,
+            #     k.shape,
+            #     v.shape,
+            #     context.max_seqlen_q,
+            #     tuple(context.cu_seqlens_q.tolist()),
+            #     context.max_seqlen_k,
+            #     tuple(context.cu_seqlens_k.tolist()),
+            #     tuple(context.block_tables.tolist()) if context.block_tables is not None else None,
+            # )
             o = flash_attn_varlen_func(
                 q,
                 k,
@@ -111,22 +111,21 @@ class Attention(nn.Module):
                 causal=True,
                 block_table=context.block_tables,
             )
-            logger.debug_once("flash_attn out: %s", o.shape)
         else:  # decode
             q_reshape = q.view(-1, q.shape[-2], q.shape[-1])  # [total_q_tokens, num_heads, head_dim]
-            logger.debug_once(
-                "call flash_attn decode: \n  q shape: %s, \n  k shape: %s, \n  v shape: %s, "
-                "\n  max_seqlen_q: %s, \n  cu_seqlens_q: %s, "
-                "\n  max_seqlen_k: %s, \n  cu_seqlens_k: %s, \n  block_tables: %s",
-                q_reshape.shape,
-                k_cache.shape,
-                v_cache.shape,
-                context.max_seqlen_q,
-                context.cu_seqlens_q.tolist(),
-                context.max_seqlen_k,
-                context.cu_seqlens_k.tolist(),
-                context.block_tables.tolist() if context.block_tables is not None else None,
-            )
+            # logger.debug_once(
+            #     "call flash_attn decode: \n  q shape: %s, \n  k shape: %s, \n  v shape: %s, "
+            #     "\n  max_seqlen_q: %s, \n  cu_seqlens_q: %s, "
+            #     "\n  max_seqlen_k: %s, \n  cu_seqlens_k: %s, \n  block_tables: %s",
+            #     q_reshape.shape,
+            #     k_cache.shape,
+            #     v_cache.shape,
+            #     context.max_seqlen_q,
+            #     context.cu_seqlens_q.tolist(),
+            #     context.max_seqlen_k,
+            #     context.cu_seqlens_k.tolist(),
+            #     context.block_tables.tolist() if context.block_tables is not None else None,
+            # )
             o = flash_attn_varlen_func(
                 q_reshape,
                 k_cache,
@@ -139,5 +138,5 @@ class Attention(nn.Module):
                 causal=True,
                 block_table=context.block_tables,
             )
-            logger.debug_once("flash_attn out: %s", o.shape)
+        # logger.debug_once("flash_attn out: %s", o.shape)
         return o

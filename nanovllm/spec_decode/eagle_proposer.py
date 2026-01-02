@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 
 from nanovllm.config import Config
+from nanovllm.engine.sequence import Sequence
 from nanovllm.models.qwen3_eagle3 import Eagle3Qwen3ForCausalLM
 from nanovllm.utils.context import get_context
 from nanovllm.utils.loader import load_model
@@ -35,6 +36,7 @@ class EagleProposer:
 
     def propose(
         self,
+        seqs: list[Sequence],
         target_token_ids: torch.Tensor,
         target_positions: torch.Tensor,
         target_hidden_states: torch.Tensor,
@@ -84,7 +86,7 @@ class EagleProposer:
         for idx in range(self.num_speculative_tokens - 1):
             input_ids = draft_token_ids_list[-1]
             positions += 1
-            self.prepare_context()
+            self.prepare_context(seqs)
             hidden_states_for_logits, hidden_states_fwd = self.model(
                 input_ids=input_ids,
                 hidden_states=hidden_states_fwd,
@@ -109,61 +111,51 @@ class EagleProposer:
     def prepare_inputs(self):
         pass
 
-    def prepare_context(self):
+    def prepare_context(self, seqs: list[Sequence]):
         context = get_context()
 
         num_sequences = context.cu_seqlens_k.shape[0] - 1
 
         if num_sequences > 0:
-            # Extract the last slot for each sequence and add 1 to get the next slot
-            # Do this BEFORE updating cu_seqlens_k since we need the original values
+            # For speculative decoding, we need to calculate the slot_mapping for draft tokens
+            # The number of tokens to be generated per sequence can be determined from cu_seqlens_q
             new_slots_list = []
+
+            # For each sequence, we need to find where its last token is currently stored in the KV cache
+            # Then allocate the next slots for the draft tokens for that sequence
             for i in range(num_sequences):
-                seq_start_idx = context.cu_seqlens_k[i].item()
-                seq_end_idx = context.cu_seqlens_k[i + 1].item()
-                if seq_start_idx < seq_end_idx and seq_end_idx <= context.slot_mapping.shape[0]:
-                    last_slot = context.slot_mapping[seq_end_idx - 1]
-                    new_slots_list.append(last_slot + 1)
+                # Get the number of tokens to be generated for this sequence
+                tokens_to_generate = (context.cu_seqlens_q[i + 1] - context.cu_seqlens_q[i]).item()
+                if (
+                    context.cu_seqlens_q[i + 1].item() > context.cu_seqlens_q[i].item()
+                    and context.slot_mapping.numel() > 0
+                ):
+                    # Get the slot of the last token of sequence i in the current context
+                    last_token_slot_idx = context.cu_seqlens_q[i + 1].item() - 1
+                    if (
+                        last_token_slot_idx >= context.cu_seqlens_q[i].item()
+                        and last_token_slot_idx < context.slot_mapping.shape[0]
+                    ):
+                        last_slot_for_seq = context.slot_mapping[last_token_slot_idx].item()
+                        start_slot = last_slot_for_seq + 1
+                    else:
+                        # Fallback: use the last slot in the entire slot mapping + 1
+                        start_slot = context.slot_mapping[-1].item() + 1
+                elif context.slot_mapping.numel() > 0:
+                    # Fallback: use the last slot in the entire slot mapping + 1
+                    start_slot = context.slot_mapping[-1].item() + 1
+                else:
+                    # If no slots exist, start from 0
+                    start_slot = 0
 
-            # For speculative decoding, we're generating one token per sequence
-            cu_seqlens_q = torch.arange(
-                num_sequences + 1, dtype=torch.int32, device=context.cu_seqlens_q.device
+                # Add slots for all tokens to be generated for this sequence
+                for j in range(tokens_to_generate):
+                    new_slots_list.append(start_slot + j)
+
+            # Set the slot_mapping to have exactly the right number of slots for the next forward pass
+            context.slot_mapping = torch.tensor(
+                new_slots_list, dtype=torch.int32, device=context.slot_mapping.device
             )
-            cu_seqlens_k = torch.arange(
-                num_sequences + 1, dtype=torch.int32, device=context.cu_seqlens_k.device
-            )
-
-            max_seqlen_q = 1
-            max_seqlen_k = 1
-
-            context.cu_seqlens_q = cu_seqlens_q
-            context.cu_seqlens_k = cu_seqlens_k
-            context.max_seqlen_q = max_seqlen_q
-            context.max_seqlen_k = max_seqlen_k
-
-            if new_slots_list:
-                new_slots = torch.tensor(
-                    new_slots_list, dtype=torch.int32, device=context.slot_mapping.device
-                )
-                context.slot_mapping = new_slots
-            else:
-                new_slots = context.slot_mapping + 1
-                context.slot_mapping = new_slots
-
-            if context.context_lens is not None:
-                context.context_lens = context.context_lens + 1
-            else:
-                context.context_lens = torch.ones(
-                    num_sequences, dtype=torch.int32, device=context.cu_seqlens_q.device
-                )
-
-            if context.block_tables is not None:
-                pass
-            else:
-                num_blocks_needed = num_sequences
-                context.block_tables = torch.zeros(
-                    (num_blocks_needed, 1), dtype=torch.int32, device=context.cu_seqlens_q.device
-                )
 
     def load_model(self, target_model: nn.Module) -> None:
         self.model = Eagle3Qwen3ForCausalLM(self.config)

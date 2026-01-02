@@ -10,7 +10,7 @@ os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 logger = get_logger(__name__)
 
 NUM_SPEC_TOKENS = 3
-OUTPUT_LEN = 32
+OUTPUT_LEN = 8
 
 
 def main():
@@ -19,9 +19,9 @@ def main():
 
     prompts = [
         "List the first ten prime numbers:",
-        # "The capital of France is",
-        # "Once upon a time in a land far, far away,",
-        # "List 10 numbers only contains digit 1:",
+        "The capital of France is",
+        "Once upon a time in a land far, far away,",
+        "List 10 numbers only contains digit 1:",
     ]
     speculative_config = {
         "method": "eagle3",

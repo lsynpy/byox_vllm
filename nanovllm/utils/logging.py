@@ -7,8 +7,8 @@ from typing import Any
 
 import torch
 
-_FORMAT = "%(levelname)s %(asctime)s [%(filename)s:%(lineno)d] %(message)s"
-# _FORMAT = "%(message)s"
+# _FORMAT = "%(levelname)s %(asctime)s [%(filename)s:%(lineno)d] %(message)s"
+_FORMAT = "%(message)s"
 
 
 def make_hashable(obj: Any) -> Hashable:

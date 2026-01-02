@@ -473,6 +473,7 @@ class ModelRunner:
             )
             last_token_indices = self._get_last_token_indices(seqs, sampled_token_ids)
             draft_token_ids_list = self.drafter.propose(
+                seqs=seqs,
                 target_token_ids=target_token_ids,
                 target_positions=target_positions,
                 target_hidden_states=aux_hidden_states,
